@@ -12,9 +12,36 @@ st.set_page_config(
 )
 
 # =========================
-# FUNÇÕES
+# FUNÇÕES AUXILIARES
 # =========================
 
+def probabilidade_contemplacao(lance_total, credito):
+    if credito <= 0:
+        return 0
+    pct = (lance_total / credito) * 100
+    if pct < 10:
+        return 15
+    elif pct < 20:
+        return 30
+    elif pct < 30:
+        return 55
+    elif pct < 40:
+        return 75
+    else:
+        return 90
+
+
+def score_estrategia(custo_total, prazo, parcela):
+    score = 100
+    score -= custo_total / 150000
+    score -= parcela / 3000
+    score -= prazo / 15
+    return max(0, round(score, 1))
+
+
+# =========================
+# CONSÓRCIO
+# =========================
 def calcular_consorcio(
     credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
     lance_embutido_pct, lance_livre_pct, lance_fixo_pct,
@@ -29,7 +56,7 @@ def calcular_consorcio(
 
     saldo_atual = max(categoria - meses_contemplacao * parcela_pre, 0)
 
-    # 🎯 BASE DE CÁLCULO DOS LANCES
+    # Regras por administradora
     if administradora == "CNP":
         if grupo in ["1021", "1053"]:
             base_fixo = categoria
@@ -51,7 +78,7 @@ def calcular_consorcio(
     lance_total = lance_embutido + lance_fixo + lance_livre
     credito_liquido = credito - lance_embutido
 
-    prob_cont = min((lance_total / credito) * 100, 100)
+    prob = probabilidade_contemplacao(lance_total, credito)
 
     return {
         "Categoria": categoria,
@@ -60,47 +87,40 @@ def calcular_consorcio(
         "Saldo Atual": saldo_atual,
         "Lance Total": lance_total,
         "Crédito Líquido": credito_liquido,
-        "Probabilidade": prob_cont
+        "Probabilidade": prob,
+        "Custo Total": categoria
     }
 
 
+# =========================
+# FINANCIAMENTO
+# =========================
 def tabela_price(valor, juros_anual, meses):
     i = juros_anual / 100 / 12
     if i == 0:
         prest = valor / meses
-        saldo = valor
-        dados = []
-        for m in range(1, meses + 1):
-            saldo -= prest
-            dados.append([m, prest, 0, prest, max(saldo, 0)])
-        return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
+        return prest, prest, valor, 0
 
     pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
-    saldo = valor
-    dados = []
-
-    for m in range(1, meses + 1):
-        juros = saldo * i
-        amort = pmt - juros
-        saldo -= amort
-        dados.append([m, pmt, juros, amort, max(saldo, 0)])
-
-    return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
+    total = pmt * meses
+    juros = total - valor
+    return pmt, pmt, total, juros
 
 
 def tabela_sac(valor, juros_anual, meses):
     i = juros_anual / 100 / 12
     amort = valor / meses
     saldo = valor
-    dados = []
+    parcelas = []
 
-    for m in range(1, meses + 1):
+    for _ in range(meses):
         juros = saldo * i
-        prest = amort + juros
+        parcelas.append(amort + juros)
         saldo -= amort
-        dados.append([m, prest, juros, amort, max(saldo, 0)])
 
-    return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
+    total = sum(parcelas)
+    juros_total = total - valor
+    return parcelas[0], parcelas[-1], total, juros_total
 
 
 # =========================
@@ -114,33 +134,20 @@ tab_cons, tab_fin, tab_comp, tab_did, tab_apres = st.tabs(
 )
 
 # =========================
-# CONSÓRCIO
+# ABA CONSÓRCIO
 # =========================
 with tab_cons:
     c1, c2 = st.columns(2)
 
     with c1:
-        credito = st.number_input("Crédito (R$)", 50000.0, 3000000.0, 300000.0)
+        credito = st.number_input("Crédito (R$)", value=300000.0, step=5000.0)
+        prazo = st.number_input("Prazo (meses)", min_value=1, value=180)
 
-        prazo = st.number_input(
-            "Prazo (meses)",
-            min_value=1,
-            step=1,
-            value=180
-        )
+        taxa_adm = st.number_input("Taxa de Administração (%)", value=15.0)
+        fundo_reserva = st.number_input("Fundo de Reserva (%)", value=2.0)
 
-        taxa_adm = st.number_input("Taxa de Administração (%)", 5.0, 30.0, 15.0)
-        fundo_reserva = st.number_input("Fundo de Reserva (%)", 0.0, 5.0, 2.0)
-
-        meses_contemplacao = st.number_input(
-            "Meses até a contemplação",
-            min_value=0,
-            max_value=prazo,
-            step=1,
-            value=0
-        )
-
-        redutor_pct = st.number_input("Redutor (%)", 0.0, 50.0, 0.0)
+        meses_contemplacao = st.number_input("Meses até a contemplação", min_value=0, value=12)
+        redutor_pct = st.number_input("Redutor sobre parcela pré (%)", value=0.0)
 
         administradora = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
 
@@ -148,32 +155,140 @@ with tab_cons:
         if administradora == "CNP":
             grupo = st.selectbox("Grupo", ["1021", "1053", "Demais Grupos"])
 
-        lance_embutido_pct = st.number_input("Lance embutido (%)", 0.0, 100.0, 20.0)
-        lance_fixo_pct = st.number_input("Lance fixo (%)", 0.0, 100.0, 0.0)
-        lance_livre_pct = st.number_input("Lance livre (%)", 0.0, 100.0, 5.0)
+        lance_embutido_pct = st.number_input("Lance embutido (%)", value=20.0)
+        lance_fixo_pct = st.number_input("Lance fixo (%)", value=0.0)
+        lance_livre_pct = st.number_input("Lance livre (%)", value=5.0)
 
-    res_cons = calcular_consorcio(
+    res_c = calcular_consorcio(
         credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
         lance_embutido_pct, lance_livre_pct, lance_fixo_pct,
         redutor_pct, administradora, grupo
     )
 
     with c2:
-        st.metric("Categoria", f"R$ {res_cons['Categoria']:,.2f}")
-        st.metric("Parcela Pré", f"R$ {res_cons['Parcela Pré']:,.2f}")
-        st.metric("Parcela Pós", f"R$ {res_cons['Parcela Pós']:,.2f}")
-        st.metric("Saldo Atual", f"R$ {res_cons['Saldo Atual']:,.2f}")
-        st.metric("Lance Total", f"R$ {res_cons['Lance Total']:,.2f}")
-        st.metric("Probabilidade de Contemplação", f"{res_cons['Probabilidade']:.1f}%")
+        st.metric("Categoria", f"R$ {res_c['Categoria']:,.2f}")
+        st.metric("Parcela Pré", f"R$ {res_c['Parcela Pré']:,.2f}")
+        st.metric("Parcela Pós", f"R$ {res_c['Parcela Pós']:,.2f}")
+        st.metric("Saldo Atual", f"R$ {res_c['Saldo Atual']:,.2f}")
+        st.metric("Lance Total", f"R$ {res_c['Lance Total']:,.2f}")
+        st.metric("Probabilidade de Contemplação", f"{res_c['Probabilidade']}%")
 
 
 # =========================
-# RODAPÉ
+# ABA FINANCIAMENTO
 # =========================
+with tab_fin:
+    f1, f2 = st.columns(2)
+
+    with f1:
+        valor_bem = st.number_input("Valor do bem (R$)", value=500000.0)
+        entrada = st.number_input("Entrada (R$)", value=100000.0)
+        prazo_f = st.number_input("Prazo (meses)", min_value=1, value=240)
+        juros_anual = st.number_input("Juros anual (%)", value=12.0)
+        sistema = st.selectbox("Sistema", ["Price", "SAC"])
+
+    valor_fin = max(valor_bem - entrada, 0)
+
+    if sistema == "Price":
+        p_ini, p_fim, total_fin, juros_fin = tabela_price(valor_fin, juros_anual, prazo_f)
+    else:
+        p_ini, p_fim, total_fin, juros_fin = tabela_sac(valor_fin, juros_anual, prazo_f)
+
+    with f2:
+        st.metric("Valor financiado", f"R$ {valor_fin:,.2f}")
+        st.metric("Parcela inicial", f"R$ {p_ini:,.2f}")
+        st.metric("Parcela final", f"R$ {p_fim:,.2f}")
+        st.metric("Total pago", f"R$ {total_fin:,.2f}")
+        st.metric("Juros totais", f"R$ {juros_fin:,.2f}")
+
+
+# =========================
+# COMPARATIVO
+# =========================
+with tab_comp:
+    score_cons = score_estrategia(res_c["Custo Total"], prazo, res_c["Parcela Pré"])
+    score_fin = score_estrategia(total_fin, prazo_f, p_ini)
+
+    st.metric("Score Consórcio", score_cons)
+    st.metric("Score Financiamento", score_fin)
+
+    df_comp = pd.DataFrame({
+        "Estratégia": ["Consórcio", "Financiamento"],
+        "Custo Total (R$)": [res_c["Custo Total"], total_fin]
+    })
+
+    st.bar_chart(df_comp.set_index("Estratégia"))
+
+    st.success(
+        "🎯 Estratégia recomendada: " +
+        ("CONSÓRCIO" if score_cons > score_fin else "FINANCIAMENTO")
+    )
+
+
+# =========================
+# DIDÁTICA
+# =========================
+with tab_did:
+    st.markdown("""
+### 📘 Explicação Didática
+
+**Consórcio**
+- Categoria = Crédito + Taxas
+- Parcela pré = parcela base − redutor
+- Parcela pós = parcela integral
+- Lance embutido reduz o crédito
+- Lance fixo e livre variam conforme administradora
+- Probabilidade baseada no % do lance
+
+**Financiamento**
+- PRICE: parcela fixa
+- SAC: parcela decrescente
+- Juros convertidos de anual para mensal
+
+**Score**
+- Considera custo total, prazo e impacto da parcela
+""")
+
+
+# =========================
+# APRESENTAÇÃO / TXT
+# =========================
+with tab_apres:
+    proposta = f"""
+PROPOSTA FINANCEIRA – INTELLIGENCE BANKING
+----------------------------------------
+
+CONSÓRCIO
+Crédito: R$ {credito:,.2f}
+Categoria: R$ {res_c['Categoria']:,.2f}
+Parcela pré: R$ {res_c['Parcela Pré']:,.2f}
+Parcela pós: R$ {res_c['Parcela Pós']:,.2f}
+Lance total: R$ {res_c['Lance Total']:,.2f}
+Probabilidade: {res_c['Probabilidade']}%
+
+FINANCIAMENTO
+Valor financiado: R$ {valor_fin:,.2f}
+Sistema: {sistema}
+Parcela inicial: R$ {p_ini:,.2f}
+Parcela final: R$ {p_fim:,.2f}
+Total pago: R$ {total_fin:,.2f}
+
+RECOMENDAÇÃO
+{"CONSÓRCIO" if score_cons > score_fin else "FINANCIAMENTO"}
+"""
+
+    st.download_button(
+        "⬇️ Baixar proposta (.txt)",
+        proposta,
+        file_name="proposta_intelligence_banking.txt"
+    )
+
 st.markdown(
     "<center>Desenvolvido por Victor • Intelligence Banking 2026</center>",
     unsafe_allow_html=True
 )
+
+
 
 
 
