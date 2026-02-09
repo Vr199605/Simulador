@@ -22,33 +22,35 @@ def calcular_consorcio(
 ):
     taxa_total = (taxa_adm + fundo_reserva) / 100
     categoria = credito * (1 + taxa_total)
-    parcela_base = categoria / prazo
 
-    # 🔻 Redutor aplicado APENAS na parcela pré-contemplação
+    parcela_base = categoria / prazo
     parcela_pre = parcela_base * (1 - redutor_pct / 100)
     parcela_pos = parcela_base
 
     saldo_atual = max(categoria - parcelas_pagas * parcela_pre, 0)
 
-    # 🎯 Base de cálculo dos lances
-    if administradora == "CNP" and grupo in ["1021", "1053"]:
-        base_fixo = categoria
-        base_livre = credito
+    # 🎯 BASE DE CÁLCULO DOS LANCES
+    if administradora == "CNP":
+        if grupo in ["1021", "1053"]:
+            base_fixo = categoria
+            base_livre = credito
+        else:
+            base_fixo = credito
+            base_livre = credito
+
     elif administradora == "Porto":
         base_fixo = categoria
         base_livre = categoria
+
     elif administradora == "Itaú":
-        base_fixo = credito
-        base_livre = credito
-    else:
         base_fixo = credito
         base_livre = credito
 
     lance_embutido = credito * (lance_embutido_pct / 100)
     lance_fixo = base_fixo * (lance_fixo_pct / 100)
     lance_livre = base_livre * (lance_livre_pct / 100)
-    lance_total = lance_embutido + lance_fixo + lance_livre
 
+    lance_total = lance_embutido + lance_fixo + lance_livre
     credito_liquido = credito - lance_embutido
 
     prob_cont = min((lance_total / credito) * 100, 100)
@@ -123,14 +125,23 @@ with tab_cons:
         credito = st.number_input("Crédito (R$)", 50000.0, 3000000.0, 300000.0)
         prazo = st.number_input("Prazo (meses)", 60, 240, 180)
 
-        taxa_adm = st.number_input("Taxa Adm (%)", 5.0, 30.0, 15.0)
-        fundo_reserva = st.number_input("Fundo Reserva (%)", 0.0, 5.0, 2.0)
+        taxa_adm = st.number_input("Taxa de Administração (%)", 5.0, 30.0, 15.0)
+        fundo_reserva = st.number_input("Fundo de Reserva (%)", 0.0, 5.0, 2.0)
 
         parcelas_pagas = st.number_input("Parcelas pagas pré-contemplação", 0, prazo, 0)
         redutor_pct = st.number_input("Redutor (%)", 0.0, 50.0, 0.0)
 
-        administradora = st.selectbox("Administradora", ["CNP", "Porto", "Itaú", "Demais grupos"])
-        grupo = st.text_input("Grupo (se aplicável)", "1021")
+        administradora = st.selectbox(
+            "Administradora",
+            ["CNP", "Itaú", "Porto"]
+        )
+
+        grupo = "Demais Grupos"
+        if administradora == "CNP":
+            grupo = st.selectbox(
+                "Grupo",
+                ["1021", "1053", "Demais Grupos"]
+            )
 
         lance_embutido_pct = st.number_input("Lance embutido (%)", 0.0, 100.0, 20.0)
         lance_fixo_pct = st.number_input("Lance fixo (%)", 0.0, 100.0, 0.0)
@@ -148,7 +159,8 @@ with tab_cons:
         st.metric("Parcela Pós", f"R$ {res_cons['Parcela Pós']:,.2f}")
         st.metric("Lance Total", f"R$ {res_cons['Lance Total']:,.2f}")
         st.metric("Crédito Líquido", f"R$ {res_cons['Crédito Líquido']:,.2f}")
-        st.metric("Prob. Contemplação", f"{res_cons['Probabilidade']:.1f}%")
+        st.metric("Probabilidade de Contemplação", f"{res_cons['Probabilidade']:.1f}%")
+
 
 # =========================
 # FINANCIAMENTO
@@ -161,7 +173,7 @@ with tab_fin:
         entrada = st.number_input("Entrada (R$)", 0.0, valor_imovel, 60000.0)
         prazo_fin = st.number_input("Prazo (meses)", 60, 420, 360)
         juros_anual = st.number_input("Juros anual (%)", 0.0, 20.0, 10.5)
-        sistema = st.selectbox("Sistema", ["PRICE", "SAC"])
+        sistema = st.selectbox("Sistema de Amortização", ["PRICE", "SAC"])
 
     valor_fin = valor_imovel - entrada
 
@@ -175,6 +187,7 @@ with tab_fin:
         st.metric("Parcela inicial", f"R$ {parcela_ini:,.2f}")
         st.metric("Total pago", f"R$ {total_pago:,.2f}")
 
+
 # =========================
 # COMPARATIVO
 # =========================
@@ -187,28 +200,30 @@ with tab_comp:
 
     st.bar_chart(df_comp)
 
+
 # =========================
 # DIDÁTICA
 # =========================
 with tab_did:
     st.markdown("""
-### 📘 Como os cálculos funcionam
+### 📘 Explicação dos Cálculos
 
 **Consórcio**
 - Categoria = Crédito + Taxas
 - Parcela Pré = Parcela Base – Redutor
 - Parcela Pós = Parcela Base
-- Lance varia conforme administradora
+- Lances variam conforme administradora e grupo
 - Probabilidade = Lance Total ÷ Crédito
 
 **Financiamento**
-- PRICE: parcelas fixas
-- SAC: parcelas decrescentes
+- PRICE → parcelas fixas
+- SAC → parcelas decrescentes
 - Entrada reduz juros totais
 """)
 
+
 # =========================
-# APRESENTAÇÃO / TXT
+# APRESENTAÇÃO
 # =========================
 with tab_apres:
     texto = f"""
@@ -219,6 +234,7 @@ Crédito: R$ {credito:,.2f}
 Parcela Pré: R$ {res_cons['Parcela Pré']:,.2f}
 Parcela Pós: R$ {res_cons['Parcela Pós']:,.2f}
 Lance Total: R$ {res_cons['Lance Total']:,.2f}
+Probabilidade de Contemplação: {res_cons['Probabilidade']:.1f}%
 
 FINANCIAMENTO
 Valor do bem: R$ {valor_imovel:,.2f}
@@ -234,6 +250,8 @@ Total Pago: R$ {total_pago:,.2f}
     )
 
 st.markdown("<center>Desenvolvido por Victor • Intelligence Banking 2026</center>", unsafe_allow_html=True)
+
+
 
 
 
