@@ -20,25 +20,21 @@ def tabela_price(valor, juros_anual, meses):
         return pd.DataFrame()
 
     i = juros_anual / 100 / 12
-
-    if i == 0:
-        parcela = valor / meses
-        saldo = valor
-        dados = []
-        for n in range(1, meses + 1):
-            saldo -= parcela
-            dados.append([n, parcela, 0, parcela, max(saldo, 0)])
-        return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
-
-    pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
     saldo = valor
     dados = []
 
-    for n in range(1, meses + 1):
-        juros = saldo * i
-        amort = pmt - juros
-        saldo -= amort
-        dados.append([n, pmt, juros, amort, max(saldo, 0)])
+    if i == 0:
+        parcela = valor / meses
+        for n in range(1, meses + 1):
+            saldo -= parcela
+            dados.append([n, parcela, 0, parcela, max(saldo, 0)])
+    else:
+        pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
+        for n in range(1, meses + 1):
+            juros = saldo * i
+            amort = pmt - juros
+            saldo -= amort
+            dados.append([n, pmt, juros, amort, max(saldo, 0)])
 
     return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
 
@@ -71,7 +67,6 @@ def calcular_consorcio(
     lance_livre_pct, lance_fixo_pct, redutor_pct
 ):
     categoria = credito * (1 + (taxa_adm + fundo_reserva) / 100)
-
     parcela_base = categoria / prazo
     parcela_pre = parcela_base * (1 - redutor_pct / 100)
 
@@ -84,7 +79,7 @@ def calcular_consorcio(
     lance_total = lance_embutido + lance_livre + lance_fixo
 
     credito_liquido = credito - lance_embutido
-    probabilidade = min(90, 10 + (lance_total / categoria) * 100)
+    probabilidade = min(95, 10 + (lance_total / categoria) * 100)
 
     saldos = []
     saldo_tmp = categoria
@@ -115,11 +110,12 @@ def calcular_consorcio(
 
 st.title("💎 Intelligence Banking – Simulador Profissional")
 
-tab_cons, tab_fin, tab_comp, tab_did = st.tabs([
+tab_cons, tab_fin, tab_comp, tab_did, tab_apres = st.tabs([
     "🤝 Consórcio",
     "🏦 Financiamento",
     "📊 Comparativo",
-    "📘 Aba Didática"
+    "📘 Didática",
+    "📽️ Apresentação ao Cliente"
 ])
 
 # =========================
@@ -148,13 +144,9 @@ with tab_cons:
     )
 
     with c2:
-        st.markdown(f"""
-        • **Categoria:** R$ {res['Categoria']:,.2f}  
-        • **Parcela pré:** R$ {res['Parcela Pré']:,.2f}  
-        • **Parcela pós:** R$ {res['Parcela Pós']:,.2f}  
-        • **Crédito líquido:** R$ {res['Crédito Líquido']:,.2f}  
-        • **Probabilidade:** {res['Probabilidade']:.1f}%
-        """)
+        st.metric("Crédito líquido", f"R$ {res['Crédito Líquido']:,.2f}")
+        st.metric("Parcela pré", f"R$ {res['Parcela Pré']:,.2f}")
+        st.metric("Probabilidade", f"{res['Probabilidade']:.1f}%")
         st.line_chart(res["DataFrame"].set_index("Parcela"))
 
 # =========================
@@ -171,17 +163,15 @@ with tab_fin:
         sistema = st.selectbox("Sistema", ["PRICE", "SAC"])
 
     valor_fin = max(valor_bem - entrada, 0)
-
     df = tabela_price(valor_fin, juros, prazo_fin) if sistema == "PRICE" else tabela_sac(valor_fin, juros, prazo_fin)
 
-    parcela_inicial = df.iloc[0]["Prestação"] if not df.empty else 0
+    parcela_ini = df.iloc[0]["Prestação"] if not df.empty else 0
     total_pago = df["Prestação"].sum() if not df.empty else 0
 
     with c2:
         st.metric("Valor financiado", f"R$ {valor_fin:,.2f}")
-        st.metric("Parcela inicial", f"R$ {parcela_inicial:,.2f}")
+        st.metric("Parcela inicial", f"R$ {parcela_ini:,.2f}")
         st.metric("Total pago", f"R$ {total_pago:,.2f}")
-
         if not df.empty:
             st.line_chart(df.set_index("Parcela")[["Saldo"]])
 
@@ -189,21 +179,10 @@ with tab_fin:
 # COMPARATIVO
 # =========================
 with tab_comp:
-    st.markdown(f"""
-    ### 📊 Comparativo Automático
-
-    **Consórcio**
-    - Crédito líquido: R$ {res['Crédito Líquido']:,.2f}
-    - Parcela pós: R$ {res['Parcela Pós']:,.2f}
-
-    **Financiamento**
-    - Total pago: R$ {total_pago:,.2f}
-    - Parcela inicial: R$ {parcela_inicial:,.2f}
-
-    🎯 **Regra estratégica**  
-    Consórcio → custo total menor  
-    Financiamento → urgência
-    """)
+    st.success(
+        "🎯 **Consórcio é indicado quando o foco é economia.**\n\n"
+        "⚡ **Financiamento é indicado quando a urgência é prioridade.**"
+    )
 
 # =========================
 # DIDÁTICA
@@ -220,11 +199,61 @@ with tab_did:
 - SAC: parcela decrescente  
 - Entrada reduz juros  
 
-### 📊 Comparativo
-- Avalia custo total  
-- Avalia fluxo de caixa  
-- Recomenda estratégia
+### 📊 Estratégia
+- Economia → Consórcio  
+- Urgência → Financiamento
 """)
+
+# =========================
+# APRESENTAÇÃO AO CLIENTE
+# =========================
+with tab_apres:
+    st.header("📽️ Apresentação da Melhor Estratégia")
+
+    estrategia = "CONSÓRCIO" if res["Probabilidade"] >= 50 else "FINANCIAMENTO"
+
+    st.markdown(f"""
+### 🎯 Estratégia Recomendada
+**{estrategia}**
+
+💡 Analisamos custo, fluxo de caixa e perfil financeiro  
+📊 Buscamos a melhor decisão, não apenas a parcela menor
+""")
+
+    proposta_txt = f"""
+===========================================
+        PROPOSTA FINANCEIRA
+        INTELLIGENCE BANKING
+===========================================
+
+🔹 CRÉDITO DESEJADO
+Valor: R$ {credito:,.2f}
+Prazo: {prazo} meses
+
+🔹 CONSÓRCIO
+Parcela pré: R$ {res['Parcela Pré']:,.2f}
+Parcela pós: R$ {res['Parcela Pós']:,.2f}
+Crédito líquido: R$ {res['Crédito Líquido']:,.2f}
+Probabilidade de contemplação: {res['Probabilidade']:.1f}%
+
+🔹 FINANCIAMENTO
+Valor financiado: R$ {valor_fin:,.2f}
+Parcela inicial: R$ {parcela_ini:,.2f}
+Total pago: R$ {total_pago:,.2f}
+
+🎯 RECOMENDAÇÃO
+Estratégia indicada: {estrategia}
+
+-------------------------------------------
+Simulação educacional – não é oferta comercial
+===========================================
+"""
+
+    st.download_button(
+        "⬇️ Baixar Proposta (.txt)",
+        proposta_txt,
+        file_name="proposta_intelligence_banking.txt"
+    )
 
 # =========================
 # RODAPÉ
@@ -233,6 +262,8 @@ st.markdown(
     "<center>Desenvolvido por Victor • Intelligence Banking 2026</center>",
     unsafe_allow_html=True
 )
+
+
 
 
 
