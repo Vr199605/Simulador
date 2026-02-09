@@ -16,6 +16,9 @@ st.set_page_config(
 # =========================
 
 def tabela_price(valor, juros_anual, meses):
+    if meses == 0:
+        return pd.DataFrame()
+
     if juros_anual == 0:
         parcela = valor / meses
         saldo = valor
@@ -23,7 +26,10 @@ def tabela_price(valor, juros_anual, meses):
         for i in range(1, meses + 1):
             saldo -= parcela
             dados.append([i, parcela, 0, parcela, max(saldo, 0)])
-        return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
+        return pd.DataFrame(
+            dados,
+            columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"]
+        )
 
     i = juros_anual / 100 / 12
     pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
@@ -36,7 +42,10 @@ def tabela_price(valor, juros_anual, meses):
         saldo -= amort
         dados.append([n, pmt, juros, amort, max(saldo, 0)])
 
-    return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
+    return pd.DataFrame(
+        dados,
+        columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"]
+    )
 
 
 def calcular_consorcio(
@@ -67,8 +76,7 @@ def calcular_consorcio(
 
     credito_liquido = credito - lance_embutido
 
-    # Probabilidade simplificada de contemplação
-    probabilidade = min(90, 10 + lance_total / categoria * 100)
+    probabilidade = min(90, 10 + (lance_total / categoria) * 100)
 
     saldos = []
     saldo_tmp = categoria
@@ -162,16 +170,24 @@ with tab_fin:
     c1, c2 = st.columns([1, 2])
 
     with c1:
-        valor_fin = st.number_input("Valor financiado (R$)", 50000.0, 3000000.0, 300000.0)
+        valor_imovel = st.number_input("Valor do bem (R$)", 50000.0, 3000000.0, 300000.0)
+        entrada = st.number_input("Entrada (R$)", 0.0, valor_imovel, 60000.0)
         juros_anual = st.number_input("Juros anual (%)", 0.0, 30.0, 12.0)
         prazo_fin = st.number_input("Prazo (meses)", 12, 420, 240)
 
-    df_price = tabela_price(valor_fin, juros_anual, prazo_fin)
+    valor_financiado = max(valor_imovel - entrada, 0)
+
+    df_price = tabela_price(valor_financiado, juros_anual, prazo_fin)
 
     with c2:
-        st.metric("Parcela", f"R$ {df_price.iloc[0]['Prestação']:,.2f}")
-        st.metric("Total pago", f"R$ {df_price['Prestação'].sum():,.2f}")
-        st.line_chart(df_price.set_index("Parcela")[["Saldo"]])
+        st.metric("Valor financiado", f"R$ {valor_financiado:,.2f}")
+
+        if not df_price.empty:
+            st.metric("Parcela", f"R$ {df_price.iloc[0]['Prestação']:,.2f}")
+            st.metric("Total pago", f"R$ {df_price['Prestação'].sum():,.2f}")
+            st.line_chart(df_price.set_index("Parcela")[["Saldo"]])
+        else:
+            st.warning("Preencha corretamente os dados do financiamento.")
 
 # =========================
 # ABA DIDÁTICA
@@ -182,16 +198,16 @@ with tab_did:
     st.markdown("""
 ### 🤝 Consórcio
 - **Categoria:** crédito + taxa de administração + fundo de reserva  
-- **Parcela pré:** parcela reduzida antes da contemplação  
-- **Parcela pós:** parcela cheia após contemplação  
+- **Parcela pré:** valor reduzido antes da contemplação  
+- **Parcela pós:** valor cheio após contemplação  
 - **Lance embutido:** abatido do crédito  
 - **Probabilidade:** estimativa baseada no percentual de lance  
 
 ### 🏦 Financiamento
+- **Valor financiado:** valor do bem – entrada  
 - **Sistema Price:** parcelas fixas  
 - **Juros compostos mensais**  
-- **Amortização cresce ao longo do tempo**  
-- **Total pago sempre > valor financiado**
+- **Total pago sempre maior que o valor financiado**
     """)
 
 # =========================
@@ -201,6 +217,8 @@ st.markdown(
     "<center>Desenvolvido por Victor • Intelligence Banking 2026</center>",
     unsafe_allow_html=True
 )
+
+
 
 
 
