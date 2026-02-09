@@ -16,7 +16,7 @@ st.set_page_config(
 # =========================
 
 def calcular_consorcio(
-    credito, prazo, taxa_adm, fundo_reserva, parcelas_pagas,
+    credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
     lance_embutido_pct, lance_livre_pct, lance_fixo_pct,
     redutor_pct, administradora, grupo
 ):
@@ -27,7 +27,7 @@ def calcular_consorcio(
     parcela_pre = parcela_base * (1 - redutor_pct / 100)
     parcela_pos = parcela_base
 
-    saldo_atual = max(categoria - parcelas_pagas * parcela_pre, 0)
+    saldo_atual = max(categoria - meses_contemplacao * parcela_pre, 0)
 
     # 🎯 BASE DE CÁLCULO DOS LANCES
     if administradora == "CNP":
@@ -37,12 +37,10 @@ def calcular_consorcio(
         else:
             base_fixo = credito
             base_livre = credito
-
     elif administradora == "Porto":
         base_fixo = categoria
         base_livre = categoria
-
-    elif administradora == "Itaú":
+    else:  # Itaú
         base_fixo = credito
         base_livre = credito
 
@@ -123,32 +121,39 @@ with tab_cons:
 
     with c1:
         credito = st.number_input("Crédito (R$)", 50000.0, 3000000.0, 300000.0)
-        prazo = st.number_input("Prazo (meses)", 60, 240, 180)
+
+        prazo = st.number_input(
+            "Prazo (meses)",
+            min_value=1,
+            step=1,
+            value=180
+        )
 
         taxa_adm = st.number_input("Taxa de Administração (%)", 5.0, 30.0, 15.0)
         fundo_reserva = st.number_input("Fundo de Reserva (%)", 0.0, 5.0, 2.0)
 
-        parcelas_pagas = st.number_input("Parcelas pagas pré-contemplação", 0, prazo, 0)
+        meses_contemplacao = st.number_input(
+            "Meses até a contemplação",
+            min_value=0,
+            max_value=prazo,
+            step=1,
+            value=0
+        )
+
         redutor_pct = st.number_input("Redutor (%)", 0.0, 50.0, 0.0)
 
-        administradora = st.selectbox(
-            "Administradora",
-            ["CNP", "Itaú", "Porto"]
-        )
+        administradora = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
 
         grupo = "Demais Grupos"
         if administradora == "CNP":
-            grupo = st.selectbox(
-                "Grupo",
-                ["1021", "1053", "Demais Grupos"]
-            )
+            grupo = st.selectbox("Grupo", ["1021", "1053", "Demais Grupos"])
 
         lance_embutido_pct = st.number_input("Lance embutido (%)", 0.0, 100.0, 20.0)
         lance_fixo_pct = st.number_input("Lance fixo (%)", 0.0, 100.0, 0.0)
         lance_livre_pct = st.number_input("Lance livre (%)", 0.0, 100.0, 5.0)
 
     res_cons = calcular_consorcio(
-        credito, prazo, taxa_adm, fundo_reserva, parcelas_pagas,
+        credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
         lance_embutido_pct, lance_livre_pct, lance_fixo_pct,
         redutor_pct, administradora, grupo
     )
@@ -157,99 +162,20 @@ with tab_cons:
         st.metric("Categoria", f"R$ {res_cons['Categoria']:,.2f}")
         st.metric("Parcela Pré", f"R$ {res_cons['Parcela Pré']:,.2f}")
         st.metric("Parcela Pós", f"R$ {res_cons['Parcela Pós']:,.2f}")
+        st.metric("Saldo Atual", f"R$ {res_cons['Saldo Atual']:,.2f}")
         st.metric("Lance Total", f"R$ {res_cons['Lance Total']:,.2f}")
-        st.metric("Crédito Líquido", f"R$ {res_cons['Crédito Líquido']:,.2f}")
         st.metric("Probabilidade de Contemplação", f"{res_cons['Probabilidade']:.1f}%")
 
 
 # =========================
-# FINANCIAMENTO
+# RODAPÉ
 # =========================
-with tab_fin:
-    c1, c2 = st.columns(2)
-
-    with c1:
-        valor_imovel = st.number_input("Valor do bem (R$)", 50000.0, 3000000.0, 300000.0)
-        entrada = st.number_input("Entrada (R$)", 0.0, valor_imovel, 60000.0)
-        prazo_fin = st.number_input("Prazo (meses)", 60, 420, 360)
-        juros_anual = st.number_input("Juros anual (%)", 0.0, 20.0, 10.5)
-        sistema = st.selectbox("Sistema de Amortização", ["PRICE", "SAC"])
-
-    valor_fin = valor_imovel - entrada
-
-    df_fin = tabela_price(valor_fin, juros_anual, prazo_fin) if sistema == "PRICE" else tabela_sac(valor_fin, juros_anual, prazo_fin)
-
-    parcela_ini = df_fin.iloc[0]["Prestação"] if not df_fin.empty else 0.0
-    total_pago = df_fin["Prestação"].sum() if not df_fin.empty else 0.0
-
-    with c2:
-        st.metric("Valor financiado", f"R$ {valor_fin:,.2f}")
-        st.metric("Parcela inicial", f"R$ {parcela_ini:,.2f}")
-        st.metric("Total pago", f"R$ {total_pago:,.2f}")
+st.markdown(
+    "<center>Desenvolvido por Victor • Intelligence Banking 2026</center>",
+    unsafe_allow_html=True
+)
 
 
-# =========================
-# COMPARATIVO
-# =========================
-with tab_comp:
-    df_comp = pd.DataFrame({
-        "Modalidade": ["Consórcio", "Financiamento"],
-        "Parcela Inicial": [res_cons["Parcela Pré"], parcela_ini],
-        "Custo Total": [res_cons["Categoria"], total_pago]
-    }).set_index("Modalidade")
-
-    st.bar_chart(df_comp)
-
-
-# =========================
-# DIDÁTICA
-# =========================
-with tab_did:
-    st.markdown("""
-### 📘 Explicação dos Cálculos
-
-**Consórcio**
-- Categoria = Crédito + Taxas
-- Parcela Pré = Parcela Base – Redutor
-- Parcela Pós = Parcela Base
-- Lances variam conforme administradora e grupo
-- Probabilidade = Lance Total ÷ Crédito
-
-**Financiamento**
-- PRICE → parcelas fixas
-- SAC → parcelas decrescentes
-- Entrada reduz juros totais
-""")
-
-
-# =========================
-# APRESENTAÇÃO
-# =========================
-with tab_apres:
-    texto = f"""
-SIMULAÇÃO – INTELLIGENCE BANKING
-
-CONSÓRCIO
-Crédito: R$ {credito:,.2f}
-Parcela Pré: R$ {res_cons['Parcela Pré']:,.2f}
-Parcela Pós: R$ {res_cons['Parcela Pós']:,.2f}
-Lance Total: R$ {res_cons['Lance Total']:,.2f}
-Probabilidade de Contemplação: {res_cons['Probabilidade']:.1f}%
-
-FINANCIAMENTO
-Valor do bem: R$ {valor_imovel:,.2f}
-Entrada: R$ {entrada:,.2f}
-Parcela Inicial: R$ {parcela_ini:,.2f}
-Total Pago: R$ {total_pago:,.2f}
-"""
-
-    st.download_button(
-        "📥 Baixar proposta (.txt)",
-        texto,
-        file_name="proposta_intelligence_banking.txt"
-    )
-
-st.markdown("<center>Desenvolvido por Victor • Intelligence Banking 2026</center>", unsafe_allow_html=True)
 
 
 
