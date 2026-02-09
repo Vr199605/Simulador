@@ -174,35 +174,35 @@ with tab_fin:
 
     df = tabela_price(valor_fin, juros, prazo_fin) if sistema == "PRICE" else tabela_sac(valor_fin, juros, prazo_fin)
 
+    parcela_inicial = df.iloc[0]["Prestação"] if not df.empty else 0
+    total_pago = df["Prestação"].sum() if not df.empty else 0
+
     with c2:
         st.metric("Valor financiado", f"R$ {valor_fin:,.2f}")
+        st.metric("Parcela inicial", f"R$ {parcela_inicial:,.2f}")
+        st.metric("Total pago", f"R$ {total_pago:,.2f}")
+
         if not df.empty:
-            st.metric("Primeira parcela", f"R$ {df.iloc[0]['Prestação']:,.2f}")
-            st.metric("Total pago", f"R$ {df['Prestação'].sum():,.2f}")
             st.line_chart(df.set_index("Parcela")[["Saldo"]])
 
 # =========================
 # COMPARATIVO
 # =========================
 with tab_comp:
-    st.header("📊 Consórcio × Financiamento")
-
-    total_fin = df['Prestação'].sum() if not df.empty else 0
-
     st.markdown(f"""
-    ### Comparativo financeiro
+    ### 📊 Comparativo Automático
 
     **Consórcio**
     - Crédito líquido: R$ {res['Crédito Líquido']:,.2f}
-    - Parcela média: R$ {res['Parcela Pós']:,.2f}
+    - Parcela pós: R$ {res['Parcela Pós']:,.2f}
 
     **Financiamento**
-    - Total pago: R$ {total_fin:,.2f}
-    - Parcela inicial: R$ {df.iloc[0]['Prestação']:,.2f if not df.empty else 0}
+    - Total pago: R$ {total_pago:,.2f}
+    - Parcela inicial: R$ {parcela_inicial:,.2f}
 
-    👉 **Regra prática**:  
-    Consórcio favorece planejamento e custo total menor.  
-    Financiamento favorece urgência.
+    🎯 **Regra estratégica**  
+    Consórcio → custo total menor  
+    Financiamento → urgência
     """)
 
 # =========================
@@ -213,17 +213,17 @@ with tab_did:
 ### 🤝 Consórcio
 - Categoria = crédito + taxas  
 - Lance embutido reduz o crédito  
-- Redutor atua apenas antes da contemplação  
+- Redutor atua apenas no período pré contemplação  
 
 ### 🏦 Financiamento
 - PRICE: parcela fixa  
 - SAC: parcela decrescente  
-- Entrada reduz juros totais  
+- Entrada reduz juros  
 
 ### 📊 Comparativo
-- Custo total  
-- Fluxo de caixa  
-- Estratégia ideal depende do perfil
+- Avalia custo total  
+- Avalia fluxo de caixa  
+- Recomenda estratégia
 """)
 
 # =========================
@@ -233,6 +233,8 @@ st.markdown(
     "<center>Desenvolvido por Victor • Intelligence Banking 2026</center>",
     unsafe_allow_html=True
 )
+
+
 
 
 
