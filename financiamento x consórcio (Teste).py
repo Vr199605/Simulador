@@ -1,267 +1,192 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import math
+import matplotlib.pyplot as plt
 
 # =========================
 # CONFIGURAÇÃO DA PÁGINA
 # =========================
 st.set_page_config(
-    page_title="Intelligence Banking Pro",
+    page_title="Simulador Consórcio x Financiamento",
     page_icon="💎",
     layout="wide"
 )
 
-# =========================
-# FUNÇÕES FINANCIAMENTO
-# =========================
+st.title("💎 Simulador Institucional – Consórcio x Financiamento")
 
-def tabela_price(valor, juros_anual, meses):
-    if valor <= 0 or meses <= 0:
-        return pd.DataFrame()
-
-    i = juros_anual / 100 / 12
-    saldo = valor
-    dados = []
-
-    if i == 0:
-        parcela = valor / meses
-        for n in range(1, meses + 1):
-            saldo -= parcela
-            dados.append([n, parcela, 0, parcela, max(saldo, 0)])
-    else:
-        pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
-        for n in range(1, meses + 1):
-            juros = saldo * i
-            amort = pmt - juros
-            saldo -= amort
-            dados.append([n, pmt, juros, amort, max(saldo, 0)])
-
-    return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
-
-
-def tabela_sac(valor, juros_anual, meses):
-    if valor <= 0 or meses <= 0:
-        return pd.DataFrame()
-
-    i = juros_anual / 100 / 12
-    amort = valor / meses
-    saldo = valor
-    dados = []
-
-    for n in range(1, meses + 1):
-        juros = saldo * i
-        prest = amort + juros
-        saldo -= amort
-        dados.append([n, prest, juros, amort, max(saldo, 0)])
-
-    return pd.DataFrame(dados, columns=["Parcela", "Prestação", "Juros", "Amortização", "Saldo"])
-
-
-# =========================
-# FUNÇÃO CONSÓRCIO
-# =========================
-
-def calcular_consorcio(
-    credito, prazo, taxa_adm, fundo_reserva,
-    parcelas_pagas, lance_embutido_pct,
-    lance_livre_pct, lance_fixo_pct, redutor_pct
-):
-    categoria = credito * (1 + (taxa_adm + fundo_reserva) / 100)
-    parcela_base = categoria / prazo
-    parcela_pre = parcela_base * (1 - redutor_pct / 100)
-
-    saldo_atual = categoria - parcelas_pagas * parcela_pre
-    saldo_atual = max(saldo_atual, 0)
-
-    lance_embutido = credito * (lance_embutido_pct / 100)
-    lance_livre = categoria * (lance_livre_pct / 100)
-    lance_fixo = categoria * (lance_fixo_pct / 100)
-    lance_total = lance_embutido + lance_livre + lance_fixo
-
-    credito_liquido = credito - lance_embutido
-    probabilidade = min(95, 10 + (lance_total / categoria) * 100)
-
-    saldos = []
-    saldo_tmp = categoria
-    for i in range(prazo):
-        saldo_tmp -= parcela_pre if i < parcelas_pagas else parcela_base
-        saldos.append(max(saldo_tmp, 0))
-
-    df = pd.DataFrame({
-        "Parcela": range(1, prazo + 1),
-        "Saldo Devedor": saldos
-    })
-
-    return {
-        "Categoria": categoria,
-        "Parcela Pré": parcela_pre,
-        "Parcela Pós": parcela_base,
-        "Saldo Atual": saldo_atual,
-        "Lance Total": lance_total,
-        "Crédito Líquido": credito_liquido,
-        "Probabilidade": probabilidade,
-        "DataFrame": df
-    }
-
-
-# =========================
-# INTERFACE
-# =========================
-
-st.title("💎 Intelligence Banking – Simulador Profissional")
-
-tab_cons, tab_fin, tab_comp, tab_did, tab_apres = st.tabs([
-    "🤝 Consórcio",
+tabs = st.tabs([
+    "🏗️ Consórcio",
     "🏦 Financiamento",
     "📊 Comparativo",
-    "📘 Didática",
-    "📽️ Apresentação ao Cliente"
+    "📘 Explicação Didática",
+    "📄 Apresentação ao Cliente"
 ])
 
 # =========================
 # CONSÓRCIO
 # =========================
-with tab_cons:
-    c1, c2 = st.columns([1, 2])
+with tabs[0]:
+    st.subheader("🏗️ Simulação de Consórcio")
 
-    with c1:
-        credito = st.number_input("Crédito (R$)", 50000.0, 3000000.0, 300000.0)
-        prazo = st.number_input("Prazo (meses)", 60, 240, 180)
-        taxa_adm = st.number_input("Taxa Adm (%)", 5.0, 30.0, 15.0)
-        fundo = st.number_input("Fundo Reserva (%)", 0.0, 5.0, 2.0)
-        parcelas_pagas = st.number_input("Parcelas pré pagas", 0, prazo, 0)
+    credito = st.number_input("Crédito desejado (R$)", 10000.0, step=5000.0)
+    taxa_adm = st.number_input("Taxa de Administração (%)", 0.0, 30.0, 15.0)
+    fundo_reserva = st.number_input("Fundo de Reserva (%)", 0.0, 5.0, 2.0)
+    prazo = st.number_input("Prazo (meses)", 12, 240, 180)
 
-        st.subheader("🎯 Lances")
-        emb = st.number_input("Lance embutido (%)", 0.0, 100.0, 20.0)
-        livre = st.number_input("Lance livre (% categoria)", 0.0, 100.0, 5.0)
-        fixo = st.number_input("Lance fixo (% categoria)", 0.0, 100.0, 0.0)
+    parcelas_pagas = st.number_input("Parcelas pagas pré-contemplação", 0, prazo, 12)
+    redutor = st.number_input("Redutor sobre parcela pré-contemplação (%)", 0.0, 50.0, 0.0)
 
-        red = st.number_input("Redutor pré (%)", 0.0, 50.0, 0.0)
+    lance_fixo = st.number_input("Lance Fixo (%)", 0.0, 50.0, 0.0)
+    lance_livre = st.number_input("Lance Livre (%)", 0.0, 100.0, 0.0)
 
-    res = calcular_consorcio(
-        credito, prazo, taxa_adm, fundo,
-        parcelas_pagas, emb, livre, fixo, red
-    )
+    categoria = credito * (1 + (taxa_adm + fundo_reserva) / 100)
+    parcela_base = categoria / prazo
+    parcela_reduzida = parcela_base * (1 - redutor / 100)
 
-    with c2:
-        st.metric("Crédito líquido", f"R$ {res['Crédito Líquido']:,.2f}")
-        st.metric("Parcela pré", f"R$ {res['Parcela Pré']:,.2f}")
-        st.metric("Probabilidade", f"{res['Probabilidade']:.1f}%")
-        st.line_chart(res["DataFrame"].set_index("Parcela"))
+    lance_total = categoria * (lance_fixo + lance_livre) / 100
+    saldo_devedor_consorcio = categoria - (parcelas_pagas * parcela_reduzida)
+
+    st.metric("📦 Categoria Total", f"R$ {categoria:,.2f}")
+    st.metric("📄 Parcela Base", f"R$ {parcela_base:,.2f}")
+    st.metric("🔻 Parcela com Redutor", f"R$ {parcela_reduzida:,.2f}")
+    st.metric("🎯 Lance Total", f"R$ {lance_total:,.2f}")
+    st.metric("📉 Saldo Devedor Atual", f"R$ {saldo_devedor_consorcio:,.2f}")
+
+    probabilidade = min(100, (lance_fixo + lance_livre) * 1.5)
+    st.progress(probabilidade / 100)
+    st.caption(f"🎯 Probabilidade estimada de contemplação: **{probabilidade:.1f}%**")
 
 # =========================
 # FINANCIAMENTO
 # =========================
-with tab_fin:
-    c1, c2 = st.columns([1, 2])
+with tabs[1]:
+    st.subheader("🏦 Simulação de Financiamento")
 
-    with c1:
-        valor_bem = st.number_input("Valor do bem (R$)", 50000.0, 3000000.0, 300000.0)
-        entrada = st.number_input("Entrada (R$)", 0.0, valor_bem, 60000.0)
-        juros = st.number_input("Juros anual (%)", 0.0, 30.0, 12.0)
-        prazo_fin = st.number_input("Prazo (meses)", 12, 420, 240)
-        sistema = st.selectbox("Sistema", ["PRICE", "SAC"])
+    valor_imovel = st.number_input("Valor do bem (R$)", 50000.0, step=10000.0)
+    entrada = st.number_input("Entrada (R$)", 0.0, valor_imovel, 0.0)
+    valor_financiado = valor_imovel - entrada
 
-    valor_fin = max(valor_bem - entrada, 0)
-    df = tabela_price(valor_fin, juros, prazo_fin) if sistema == "PRICE" else tabela_sac(valor_fin, juros, prazo_fin)
+    juros_anual = st.number_input("Juros anual (%)", 0.0, 30.0, 12.0)
+    prazo_fin = st.number_input("Prazo (meses)", 12, 420, 240)
+    sistema = st.selectbox("Sistema de Amortização", ["PRICE", "SAC"])
 
-    parcela_ini = df.iloc[0]["Prestação"] if not df.empty else 0
-    total_pago = df["Prestação"].sum() if not df.empty else 0
+    juros_mensal = (1 + juros_anual / 100) ** (1/12) - 1
 
-    with c2:
-        st.metric("Valor financiado", f"R$ {valor_fin:,.2f}")
-        st.metric("Parcela inicial", f"R$ {parcela_ini:,.2f}")
-        st.metric("Total pago", f"R$ {total_pago:,.2f}")
-        if not df.empty:
-            st.line_chart(df.set_index("Parcela")[["Saldo"]])
+    parcelas = []
+
+    if sistema == "PRICE":
+        parcela = valor_financiado * (juros_mensal * (1 + juros_mensal)**prazo_fin) / ((1 + juros_mensal)**prazo_fin - 1)
+        saldo = valor_financiado
+
+        for i in range(1, prazo_fin + 1):
+            juros = saldo * juros_mensal
+            amort = parcela - juros
+            saldo -= amort
+            parcelas.append(parcela)
+
+    else:  # SAC
+        amort = valor_financiado / prazo_fin
+        saldo = valor_financiado
+
+        for i in range(1, prazo_fin + 1):
+            juros = saldo * juros_mensal
+            parcela = amort + juros
+            saldo -= amort
+            parcelas.append(parcela)
+
+    total_pago_fin = sum(parcelas)
+
+    st.metric("💰 Valor Financiado", f"R$ {valor_financiado:,.2f}")
+    st.metric("📄 Parcela Inicial", f"R$ {parcelas[0]:,.2f}")
+    st.metric("💸 Total Pago", f"R$ {total_pago_fin:,.2f}")
 
 # =========================
 # COMPARATIVO
 # =========================
-with tab_comp:
-    st.success(
-        "🎯 **Consórcio é indicado quando o foco é economia.**\n\n"
-        "⚡ **Financiamento é indicado quando a urgência é prioridade.**"
-    )
+with tabs[2]:
+    st.subheader("📊 Comparativo Automático")
+
+    labels = ["Consórcio", "Financiamento"]
+    valores = [categoria, total_pago_fin]
+
+    fig, ax = plt.subplots()
+    ax.bar(labels, valores)
+    ax.set_ylabel("Valor Total (R$)")
+    ax.set_title("Comparativo de Custo Total")
+
+    st.pyplot(fig)
+
+    vantagem = "Consórcio" if categoria < total_pago_fin else "Financiamento"
+    st.success(f"🎯 Melhor custo total: **{vantagem}**")
 
 # =========================
-# DIDÁTICA
+# EXPLICAÇÃO DIDÁTICA
 # =========================
-with tab_did:
+with tabs[3]:
+    st.subheader("📘 Explicação Didática dos Cálculos")
+
     st.markdown("""
-### 🤝 Consórcio
-- Categoria = crédito + taxas  
-- Lance embutido reduz o crédito  
-- Redutor atua apenas no período pré contemplação  
+### 🏗️ Consórcio
+- **Categoria** = Crédito + Taxa de Administração + Fundo de Reserva  
+- **Parcela Base** = Categoria ÷ Prazo  
+- **Redutor** atua apenas **antes da contemplação**
+- **Lances** são calculados **sobre a categoria**
+- **Probabilidade** é uma estimativa proporcional ao lance ofertado
 
 ### 🏦 Financiamento
-- PRICE: parcela fixa  
-- SAC: parcela decrescente  
-- Entrada reduz juros  
+- Juros informados são **anuais**, convertidos para mensal
+- **PRICE** → parcelas fixas  
+- **SAC** → parcelas decrescentes
+- O custo final depende diretamente do prazo e da taxa
 
-### 📊 Estratégia
-- Economia → Consórcio  
-- Urgência → Financiamento
+### 📊 Comparativo
+- Compara o **valor total desembolsado**
+- Não considera reinvestimento, inflação ou custo de oportunidade
 """)
 
 # =========================
 # APRESENTAÇÃO AO CLIENTE
 # =========================
-with tab_apres:
-    st.header("📽️ Apresentação da Melhor Estratégia")
+with tabs[4]:
+    st.subheader("📄 Proposta para o Cliente")
 
-    estrategia = "CONSÓRCIO" if res["Probabilidade"] >= 50 else "FINANCIAMENTO"
+    texto = f"""
+========================================
+SIMULAÇÃO PERSONALIZADA
+========================================
 
-    st.markdown(f"""
-### 🎯 Estratégia Recomendada
-**{estrategia}**
+📌 CONSÓRCIO
+Crédito: R$ {credito:,.2f}
+Categoria Total: R$ {categoria:,.2f}
+Parcela Base: R$ {parcela_base:,.2f}
+Parcela com Redutor: R$ {parcela_reduzida:,.2f}
+Saldo Devedor Atual: R$ {saldo_devedor_consorcio:,.2f}
 
-💡 Analisamos custo, fluxo de caixa e perfil financeiro  
-📊 Buscamos a melhor decisão, não apenas a parcela menor
-""")
+📌 FINANCIAMENTO
+Valor do Bem: R$ {valor_imovel:,.2f}
+Entrada: R$ {entrada:,.2f}
+Valor Financiado: R$ {valor_financiado:,.2f}
+Parcela Inicial: R$ {parcelas[0]:,.2f}
+Total Pago: R$ {total_pago_fin:,.2f}
 
-    proposta_txt = f"""
-===========================================
-        PROPOSTA FINANCEIRA
-        INTELLIGENCE BANKING
-===========================================
+📊 CONCLUSÃO
+Melhor custo total estimado: {vantagem}
 
-🔹 CRÉDITO DESEJADO
-Valor: R$ {credito:,.2f}
-Prazo: {prazo} meses
-
-🔹 CONSÓRCIO
-Parcela pré: R$ {res['Parcela Pré']:,.2f}
-Parcela pós: R$ {res['Parcela Pós']:,.2f}
-Crédito líquido: R$ {res['Crédito Líquido']:,.2f}
-Probabilidade de contemplação: {res['Probabilidade']:.1f}%
-
-🔹 FINANCIAMENTO
-Valor financiado: R$ {valor_fin:,.2f}
-Parcela inicial: R$ {parcela_ini:,.2f}
-Total pago: R$ {total_pago:,.2f}
-
-🎯 RECOMENDAÇÃO
-Estratégia indicada: {estrategia}
-
--------------------------------------------
-Simulação educacional – não é oferta comercial
-===========================================
+Simulação institucional – InvestSmartXP
+========================================
 """
 
+    st.text_area("Prévia da Proposta", texto, height=400)
+
     st.download_button(
-        "⬇️ Baixar Proposta (.txt)",
-        proposta_txt,
-        file_name="proposta_intelligence_banking.txt"
+        label="⬇️ Baixar Proposta (.txt)",
+        data=texto,
+        file_name="proposta_simulacao.txt",
+        mime="text/plain"
     )
 
-# =========================
-# RODAPÉ
-# =========================
-st.markdown(
-    "<center>Desenvolvido por Victor • Intelligence Banking 2026</center>",
-    unsafe_allow_html=True
-)
+
 
 
 
