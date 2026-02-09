@@ -2,46 +2,49 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-st.set_page_config(page_title="Simulador Consórcio x Financiamento", layout="wide")
+st.set_page_config(
+    page_title="Simulador Consórcio x Financiamento",
+    layout="wide"
+)
 
 # =========================
-# FUNÇÕES AUXILIARES
+# FUNÇÕES
 # =========================
-def formatar(valor):
+def brl(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def calcular_price(valor, juros_anual, meses):
-    juros = juros_anual / 100 / 12
-    parcela = valor * (juros * (1 + juros) ** meses) / ((1 + juros) ** meses - 1)
+def tabela_price(valor, juros_anual, meses):
+    i = juros_anual / 100 / 12
+    pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
     saldo = valor
     dados = []
 
-    for i in range(1, meses + 1):
-        juros_mes = saldo * juros
-        amort = parcela - juros_mes
+    for m in range(1, meses + 1):
+        juros = saldo * i
+        amort = pmt - juros
         saldo -= amort
-        dados.append([i, parcela, amort, juros_mes, max(saldo, 0)])
+        dados.append([m, pmt, amort, juros, max(saldo, 0)])
 
     return pd.DataFrame(dados, columns=["Mês", "Parcela", "Amortização", "Juros", "Saldo"])
 
-def calcular_sac(valor, juros_anual, meses):
-    juros = juros_anual / 100 / 12
+def tabela_sac(valor, juros_anual, meses):
+    i = juros_anual / 100 / 12
     amort = valor / meses
     saldo = valor
     dados = []
 
-    for i in range(1, meses + 1):
-        juros_mes = saldo * juros
-        parcela = amort + juros_mes
+    for m in range(1, meses + 1):
+        juros = saldo * i
+        parcela = amort + juros
         saldo -= amort
-        dados.append([i, parcela, amort, juros_mes, max(saldo, 0)])
+        dados.append([m, parcela, amort, juros, max(saldo, 0)])
 
     return pd.DataFrame(dados, columns=["Mês", "Parcela", "Amortização", "Juros", "Saldo"])
 
 # =========================
 # ABAS
 # =========================
-aba1, aba2, aba3, aba4 = st.tabs([
+aba_cons, aba_fin, aba_comp, aba_info = st.tabs([
     "📦 Consórcio",
     "🏦 Financiamento",
     "🔄 Comparação & Score",
@@ -51,75 +54,118 @@ aba1, aba2, aba3, aba4 = st.tabs([
 # =========================
 # CONSÓRCIO
 # =========================
-with aba1:
+with aba_cons:
     st.header("📦 Simulação de Consórcio")
 
-    credito = st.number_input("Crédito (R$)", min_value=10000.0, step=1000.0)
-    taxa_adm = st.number_input("Taxa de Administração (%)", min_value=0.0)
-    fundo_reserva = st.number_input("Fundo de Reserva (%)", min_value=0.0)
-    prazo = st.number_input("Prazo (meses)", min_value=12, step=12)
+    credito = st.number_input("Crédito (R$)", 10000.0, step=1000.0, key="cons_credito")
+    taxa_adm = st.number_input("Taxa de Administração (%)", 0.0, key="cons_taxa")
+    fundo_reserva = st.number_input("Fundo de Reserva (%)", 0.0, key="cons_fundo")
+    prazo = st.number_input("Prazo (meses)", 12, step=12, key="cons_prazo")
 
-    parcelas_pagas = st.number_input("Parcelas pagas pré-contemplação", min_value=0, max_value=prazo)
-    redutor = st.number_input("Redutor sobre parcela pré (%)", min_value=0.0, max_value=100.0)
+    parcelas_pagas = st.number_input(
+        "Parcelas pagas pré-contemplação",
+        min_value=0,
+        max_value=int(prazo),
+        key="cons_parcelas_pagas"
+    )
+
+    redutor = st.number_input(
+        "Redutor sobre a parcela pré (%)",
+        min_value=0.0,
+        max_value=100.0,
+        key="cons_redutor"
+    )
 
     st.subheader("🎯 Lances")
-    lance_embutido_pct = st.number_input("Lance Embutido (%)", min_value=0.0, max_value=100.0)
-    lance_fixo = st.number_input("Lance Fixo (R$)", min_value=0.0)
-    lance_livre = st.number_input("Lance Livre (R$)", min_value=0.0)
+    lance_emb_pct = st.number_input(
+        "Lance embutido (%)",
+        min_value=0.0,
+        max_value=100.0,
+        key="cons_lance_emb"
+    )
 
+    lance_fixo = st.number_input(
+        "Lance fixo (R$)",
+        min_value=0.0,
+        key="cons_lance_fixo"
+    )
+
+    lance_livre = st.number_input(
+        "Lance livre (R$)",
+        min_value=0.0,
+        key="cons_lance_livre"
+    )
+
+    # Cálculos
     categoria = credito * (1 + (taxa_adm + fundo_reserva) / 100)
-
-    lance_embutido = credito * lance_embutido_pct / 100
-    total_lance = lance_embutido + lance_fixo + lance_livre
-
-    credito_liquido = credito - lance_embutido
-
     parcela_base = categoria / prazo
     parcela_pre = parcela_base * (1 - redutor / 100)
 
     saldo_devedor = categoria - (parcela_pre * parcelas_pagas)
 
-    st.markdown("### 📊 Resultados")
-    col1, col2, col3 = st.columns(3)
+    lance_embutido = credito * lance_emb_pct / 100
+    credito_liquido = credito - lance_embutido
 
-    col1.metric("Categoria", formatar(categoria))
-    col2.metric("Crédito Líquido", formatar(credito_liquido))
-    col3.metric("Total de Lance", formatar(total_lance))
+    total_lance = lance_embutido + lance_fixo + lance_livre
 
-    st.metric("Saldo Devedor Atual", formatar(saldo_devedor))
+    # Resultados
+    st.subheader("📊 Resultados")
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("Categoria", brl(categoria))
+    c2.metric("Crédito Líquido", brl(credito_liquido))
+    c3.metric("Total de Lance", brl(total_lance))
+
+    st.metric("Saldo Devedor Atual", brl(max(saldo_devedor, 0)))
 
     # Gráfico Consórcio
     meses = list(range(parcelas_pagas, prazo + 1))
     saldos = [max(saldo_devedor - parcela_base * (m - parcelas_pagas), 0) for m in meses]
 
-    df_cons = pd.DataFrame({"Mês": meses, "Saldo Devedor": saldos})
+    df_cons = pd.DataFrame({"Mês": meses, "Saldo": saldos})
     st.line_chart(df_cons.set_index("Mês"))
 
 # =========================
 # FINANCIAMENTO
 # =========================
-with aba2:
+with aba_fin:
     st.header("🏦 Simulação de Financiamento")
 
-    valor_fin = st.number_input("Valor financiado (R$)", min_value=10000.0)
-    juros_anual = st.number_input("Juros Anual (%)", min_value=0.0)
-    prazo_fin = st.number_input("Prazo (meses)", min_value=12, step=12)
+    valor_fin = st.number_input(
+        "Valor financiado (R$)",
+        min_value=10000.0,
+        step=1000.0,
+        key="fin_valor"
+    )
 
-    df_price = calcular_price(valor_fin, juros_anual, prazo_fin)
-    df_sac = calcular_sac(valor_fin, juros_anual, prazo_fin)
+    juros_anual = st.number_input(
+        "Juros anual (%)",
+        min_value=0.0,
+        key="fin_juros"
+    )
+
+    prazo_fin = st.number_input(
+        "Prazo do financiamento (meses)",
+        min_value=12,
+        step=12,
+        key="fin_prazo"
+    )
+
+    df_price = tabela_price(valor_fin, juros_anual, prazo_fin)
+    df_sac = tabela_sac(valor_fin, juros_anual, prazo_fin)
 
     st.subheader("📉 Saldo Devedor")
     st.line_chart(
         pd.DataFrame({
-            "PRICE": df_price["Saldo"],
-            "SAC": df_sac["Saldo"]
+            "PRICE": df_price["Saldo"].values,
+            "SAC": df_sac["Saldo"].values
         })
     )
 
 # =========================
 # COMPARAÇÃO & SCORE
 # =========================
-with aba3:
+with aba_comp:
     st.header("🔄 Comparação Inteligente")
 
     custo_cons = categoria
@@ -140,36 +186,38 @@ with aba3:
 # =========================
 # EXPLICAÇÃO DIDÁTICA
 # =========================
-with aba4:
-    st.header("📘 Explicação dos Cálculos")
+with aba_info:
+    st.header("📘 Explicação Didática dos Cálculos")
 
     st.markdown("""
 ### 📦 Consórcio
 - **Categoria** = Crédito + Taxa de Administração + Fundo de Reserva  
-- **Parcela base** = Categoria / Prazo  
-- **Parcela pré-contemplação** sofre **redutor (%)**
-- **Saldo devedor** considera parcelas já pagas com redutor
-- **Lance embutido** reduz o crédito
-- **Lance fixo e livre** NÃO reduzem o crédito
+- **Parcela base** = Categoria ÷ Prazo  
+- **Redutor** é aplicado **somente na parcela pré-contemplação**  
+- **Saldo devedor** considera parcelas já pagas com redutor  
+- **Lance embutido** reduz o crédito  
+- **Lance fixo e livre** não reduzem o crédito  
 
 ---
 
 ### 🏦 Financiamento
-**PRICE**
+**Tabela PRICE**
 - Parcela fixa
-- Juros maiores no início
+- Mais juros no início
 
-**SAC**
+**Tabela SAC**
 - Amortização fixa
-- Parcela decrescente
-- Menos juros totais
+- Parcelas decrescentes
+- Menor custo total
 
 ---
 
 ### 🧠 Score
-- Avalia custo total vs crédito
+- Compara custo total vs valor financiado
 - Quanto menor o custo relativo, maior o score
-- Recomendação automática baseada no score
+- Gera recomendação automática
 """)
+
+
 
 
