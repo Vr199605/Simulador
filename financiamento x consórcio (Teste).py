@@ -26,23 +26,36 @@ def calcular_consorcio(
 
     saldo_atual = max(categoria - meses_contemplacao * parcela_pre, 0)
 
-    # Base conforme administradora
+    # =========================
+    # BASE REPRESENTATIVIDADE
+    # =========================
     if administradora == "Porto":
         base_representatividade = categoria
     else:
         base_representatividade = credito
 
-    # Lances
+    # =========================
+    # LANCES
+    # =========================
     lance_embutido = credito * (lance_embutido_pct / 100)
-    lance_fixo = base_representatividade * (lance_fixo_pct / 100)
 
-    # Lance livre automático (estratégico)
+    # 🔴 REGRA ESPECIAL CNP 1021 / 1053
+    if administradora == "CNP" and grupo in ["1021", "1053"]:
+        base_lance_fixo = saldo_atual
+    else:
+        base_lance_fixo = base_representatividade
+
+    lance_fixo = base_lance_fixo * (lance_fixo_pct / 100)
+
     lance_livre = recurso_proprio
-
     lance_total = lance_embutido + lance_fixo + lance_livre
+
     credito_liquido = credito - lance_embutido
 
-    representatividade = (lance_total / base_representatividade) * 100 if base_representatividade > 0 else 0
+    representatividade = (
+        (lance_total / base_representatividade) * 100
+        if base_representatividade > 0 else 0
+    )
 
     return {
         "Crédito": credito,
@@ -50,14 +63,15 @@ def calcular_consorcio(
         "Categoria": categoria,
         "Parcela Pré": parcela_pre,
         "Parcela Pós": parcela_pos,
-        "Saldo": saldo_atual,
+        "Saldo Atual": saldo_atual,
         "Lance Embutido": lance_embutido,
         "Lance Fixo": lance_fixo,
         "Lance Livre": lance_livre,
         "Lance Total": lance_total,
-        "Representatividade do Lance (%)": representatividade,
+        "Representatividade": representatividade,
         "Taxa Efetiva": taxa_total,
-        "Custo Total": categoria
+        "Custo Total": categoria,
+        "Base Representatividade": base_representatividade
     }
 
 # =========================
@@ -84,9 +98,19 @@ def tabela_sac(valor, juros_anual, meses):
 # =========================
 st.title("💎 Intelligence Banking – Simulador Profissional")
 
-tab_cons, tab_fin, tab_comp, tab_did, tab_prop = st.tabs(
-    ["🤝 Consórcio", "🏦 Financiamento", "📊 Comparativo", "📘 Didática", "📄 Proposta"]
-)
+tabs = st.tabs([
+    "🤝 Consórcio",
+    "🏦 Financiamento",
+    "📊 Comparativo",
+    "📘 Didática",
+    "🎯 Faixas de Contemplação",
+    "📊 Ranking do Grupo",
+    "🧠 Recomendação de Lance",
+    "📄 Proposta"
+])
+
+(tab_cons, tab_fin, tab_comp, tab_did,
+ tab_fx, tab_rank, tab_lance, tab_prop) = tabs
 
 # =========================
 # CONSÓRCIO
@@ -101,7 +125,6 @@ with tab_cons:
         fundo = st.number_input("Fundo Reserva (%)", value=2.0)
         meses = st.number_input("Meses até contemplação", min_value=0, value=12)
         redutor = st.number_input("Redutor pré (%)", value=0.0)
-
         recurso = st.number_input("Recurso próprio (R$)", value=0.0)
 
         adm = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
@@ -122,9 +145,9 @@ with tab_cons:
         for k, v in res_c.items():
             if k == "Taxa Efetiva":
                 st.metric(k, f"{v*100:.2f}%")
-            elif "Representatividade" in k:
+            elif k == "Representatividade":
                 st.metric(k, f"{v:.2f}%")
-            else:
+            elif isinstance(v, (int, float)):
                 st.metric(k, f"R$ {v:,.2f}")
 
 # =========================
@@ -174,46 +197,62 @@ with tab_comp:
 # =========================
 with tab_did:
     st.markdown("""
-### 📘 Representatividade do Lance
-
-- Não é input → é **resultado**
-- Mostra o peso real do lance no grupo
-- Cada administradora usa base diferente
-- Ajuda a entender **chance competitiva**
+### 📘 Lance Fixo – Regra Especial CNP
+- Grupos **1021 e 1053**
+- Percentual aplicado **sobre o saldo**
+- Regra automática no sistema
 """)
+
+# =========================
+# FAIXAS
+# =========================
+with tab_fx:
+    rep = res_c["Representatividade"]
+    if rep < 10:
+        faixa = "🔴 Muito baixa"
+    elif rep < 20:
+        faixa = "🟠 Baixa"
+    elif rep < 30:
+        faixa = "🟡 Média"
+    elif rep < 40:
+        faixa = "🟢 Alta"
+    else:
+        faixa = "🟢🟢 Muito alta"
+    st.metric("Faixa estimada", faixa)
+
+# =========================
+# RANKING
+# =========================
+with tab_rank:
+    posicao = max(1, int(100 - rep))
+    st.metric("Posição estimada", f"{posicao}º de 100")
+
+# =========================
+# LANCE IDEAL
+# =========================
+with tab_lance:
+    base = res_c["Base Representatividade"]
+    alvo_media = base * 0.25
+    alvo_alta = base * 0.35
+
+    st.write(f"Para faixa **MÉDIA** adicionar **R$ {max(0, alvo_media - res_c['Lance Total']):,.2f}**")
+    st.write(f"Para faixa **ALTA** adicionar **R$ {max(0, alvo_alta - res_c['Lance Total']):,.2f}**")
 
 # =========================
 # PROPOSTA
 # =========================
 with tab_prop:
     texto = f"""
-==============================
-PROPOSTA FINANCEIRA
-INTELLIGENCE BANKING
-==============================
+PROPOSTA INTELLIGENCE BANKING
 
-CONSÓRCIO
 Crédito: R$ {res_c['Crédito']:,.2f}
 Lance Total: R$ {res_c['Lance Total']:,.2f}
-Representatividade do Lance: {res_c['Representatividade do Lance (%)']:.2f}%
+Representatividade: {res_c['Representatividade']:.2f}%
 Parcela Pós: R$ {res_c['Parcela Pós']:,.2f}
-Taxa Efetiva: {res_c['Taxa Efetiva']*100:.2f}%
-Custo Total: R$ {res_c['Custo Total']:,.2f}
-
-FINANCIAMENTO
-Valor Financiado: R$ {financiado:,.2f}
-Parcela Inicial: R$ {p_ini:,.2f}
-Parcela Final: R$ {p_fim:,.2f}
-Taxa Efetiva: {taxa_efetiva_fin*100:.2f}%
-Custo Total: R$ {total_fin:,.2f}
-
-CONCLUSÃO
-Melhor por taxa: {vencedor_taxa}
-Melhor por parcela: {vencedor_parcela}
-Melhor por custo total: {vencedor_custo}
+Taxa Efetiva Consórcio: {res_c['Taxa Efetiva']*100:.2f}%
 """
-
     st.download_button("⬇️ Baixar Proposta TXT", texto, "proposta_completa.txt")
+
 
 
 
