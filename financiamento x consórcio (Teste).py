@@ -10,22 +10,13 @@ st.set_page_config(
 )
 
 # =========================
-# FUNÇÕES AUXILIARES
-# =========================
-def score_taxa(taxa_cons, taxa_fin):
-    diff = (taxa_fin - taxa_cons) * 100
-    if diff > 0:
-        return round(min(100, diff), 1), "CONSÓRCIO"
-    else:
-        return round(min(100, abs(diff)), 1), "FINANCIAMENTO"
-
-# =========================
 # CONSÓRCIO
 # =========================
 def calcular_consorcio(
     credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
-    lance_embutido_pct, lance_livre_pct, lance_fixo_pct,
-    recurso_proprio, redutor_pct, administradora, grupo
+    lance_embutido_pct, lance_fixo_pct,
+    representatividade_pct, recurso_proprio,
+    redutor_pct, administradora, grupo
 ):
     taxa_total = (taxa_adm + fundo_reserva) / 100
     categoria = credito * (1 + taxa_total)
@@ -36,19 +27,23 @@ def calcular_consorcio(
 
     saldo_atual = max(categoria - meses_contemplacao * parcela_pre, 0)
 
+    # Bases conforme administradora
     if administradora == "CNP":
         if grupo in ["1021", "1053"]:
-            base_fixo, base_livre = categoria, credito
+            base_fixo = categoria
+            base_livre = credito
         else:
             base_fixo = base_livre = credito
     elif administradora == "Porto":
         base_fixo = base_livre = categoria
-    else:
+    else:  # Itaú
         base_fixo = base_livre = credito
 
     lance_embutido = credito * (lance_embutido_pct / 100)
     lance_fixo = base_fixo * (lance_fixo_pct / 100)
-    lance_livre = base_livre * (lance_livre_pct / 100)
+
+    # Representatividade do lance
+    lance_livre = base_livre * (representatividade_pct / 100)
 
     lance_total = lance_embutido + lance_fixo + lance_livre + recurso_proprio
     credito_liquido = credito - lance_embutido
@@ -60,8 +55,12 @@ def calcular_consorcio(
         "Parcela Pré": parcela_pre,
         "Parcela Pós": parcela_pos,
         "Saldo": saldo_atual,
+        "Lance Embutido": lance_embutido,
+        "Lance Fixo": lance_fixo,
+        "Lance Livre": lance_livre,
+        "Recurso Próprio": recurso_proprio,
         "Lance Total": lance_total,
-        "Taxa Efetiva": taxa_total,  # percentual
+        "Taxa Efetiva": taxa_total,
         "Custo Total": categoria
     }
 
@@ -72,7 +71,7 @@ def tabela_price(valor, juros_anual, meses):
     i = juros_anual / 100 / 12
     pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
     total = pmt * meses
-    return pmt, pmt, total, total - valor
+    return pmt, pmt, total
 
 def tabela_sac(valor, juros_anual, meses):
     i = juros_anual / 100 / 12
@@ -82,7 +81,7 @@ def tabela_sac(valor, juros_anual, meses):
     for _ in range(meses):
         parcelas.append(amort + saldo * i)
         saldo -= amort
-    return parcelas[0], parcelas[-1], sum(parcelas), sum(parcelas) - valor
+    return parcelas[0], parcelas[-1], sum(parcelas)
 
 # =========================
 # INTERFACE
@@ -107,15 +106,25 @@ with tab_cons:
         meses = st.number_input("Meses até contemplação", min_value=0, value=12)
         redutor = st.number_input("Redutor pré (%)", value=0.0)
         recurso = st.number_input("Recurso próprio (R$)", value=0.0)
+
         adm = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
-        grupo = st.selectbox("Grupo", ["1021", "1053", "Demais Grupos"]) if adm == "CNP" else "Demais Grupos"
+        grupo = st.selectbox(
+            "Grupo",
+            ["1021", "1053", "Demais Grupos"]
+        ) if adm == "CNP" else "Demais Grupos"
+
         le = st.number_input("Lance embutido (%)", value=20.0)
         lf = st.number_input("Lance fixo (%)", value=0.0)
-        ll = st.number_input("Lance livre (%)", value=5.0)
+
+        rep = st.number_input(
+            "Representatividade do lance no grupo (%)",
+            help="Percentual estimado para competir no ranking do grupo",
+            value=5.0
+        )
 
     res_c = calcular_consorcio(
         credito, prazo, taxa_adm, fundo, meses,
-        le, ll, lf, recurso, redutor, adm, grupo
+        le, lf, rep, recurso, redutor, adm, grupo
     )
 
     with c2:
@@ -140,11 +149,10 @@ with tab_fin:
 
     financiado = max(valor - entrada, 0)
 
-    p_ini, p_fim, total_fin, juros_tot = (
-        tabela_price(financiado, juros, prazo_f)
-        if sistema == "Price"
-        else tabela_sac(financiado, juros, prazo_f)
-    )
+    if sistema == "Price":
+        p_ini, p_fim, total_fin = tabela_price(financiado, juros, prazo_f)
+    else:
+        p_ini, p_fim, total_fin = tabela_sac(financiado, juros, prazo_f)
 
     taxa_efetiva_fin = (total_fin / financiado - 1) if financiado > 0 else 0
 
@@ -173,12 +181,12 @@ with tab_comp:
 # =========================
 with tab_did:
     st.markdown("""
-### 📘 Leitura correta da Taxa Efetiva
+### 📘 Representatividade do Lance
 
-- No **consórcio**, a taxa efetiva representa o **custo total percentual**
-- No **financiamento**, reflete juros compostos no tempo
-- Taxa ≠ parcela
-- Estratégia depende de **fluxo x custo**
+- Substitui o antigo **lance livre**
+- Reflete a **posição competitiva no grupo**
+- Cada administradora usa **base diferente**
+- O sistema converte automaticamente em valor financeiro
 """)
 
 # =========================
@@ -212,6 +220,8 @@ Melhor por custo total: {vencedor_custo}
 """
 
     st.download_button("⬇️ Baixar Proposta TXT", texto, "proposta_completa.txt")
+
+
 
 
 
