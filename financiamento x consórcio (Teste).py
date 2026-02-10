@@ -12,6 +12,8 @@ def formatar(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def taxa_efetiva_consorcio(taxa_adm, fundo_reserva, prazo):
+    if prazo == 0:
+        return 0
     custo_total = taxa_adm + fundo_reserva
     return (custo_total / prazo) * 12
 
@@ -19,6 +21,8 @@ def taxa_efetiva_financiamento(juros_anual):
     return juros_anual
 
 def score_taxas(t_cons, t_fin):
+    if t_cons == 0 or t_fin == 0:
+        return "⚠️ Preencha todos os dados para comparar"
     if t_cons < t_fin * 0.8:
         return "🟢 Consórcio muito vantajoso"
     elif t_cons < t_fin:
@@ -61,6 +65,7 @@ with tabs[0]:
 
     categoria = credito * (1 + (taxa_adm + fundo_reserva) / 100)
 
+    # Regras de lance
     base_lance = "crédito"
     if administradora == "CNP" and grupo in ["1021", "1053"]:
         base_lance = "categoria"
@@ -72,13 +77,17 @@ with tabs[0]:
     lance_fixo = base_valor * 0.3
     lance_livre = base_valor * 0.2
 
-    parcela_base = categoria / prazo
+    parcela_base = categoria / prazo if prazo > 0 else 0
     parcela_pre = parcela_base * (1 - redutor / 100)
     parcela_pos = parcela_base
 
     credito_liquido = credito
 
-    prob = min(90, 20 + (lance_fixo / base_valor) * 100)
+    # 🔒 CORREÇÃO DO ERRO (DIVISÃO POR ZERO)
+    if base_valor > 0:
+        prob = min(90, 20 + (lance_fixo / base_valor) * 100)
+    else:
+        prob = 0
 
     st.subheader("📌 Resultados")
     st.write("Crédito original:", formatar(credito))
@@ -104,10 +113,10 @@ with tabs[1]:
     sistema = st.selectbox("Sistema", ["PRICE", "SAC"])
 
     saldo = valor_bem - entrada
-    juros_mensal = (juros_anual / 100) / 12
+    juros_mensal = (juros_anual / 100) / 12 if juros_anual > 0 else 0
 
     if saldo > 0 and prazo_fin > 0:
-        if sistema == "PRICE":
+        if sistema == "PRICE" and juros_mensal > 0:
             parcela = saldo * (juros_mensal * (1 + juros_mensal)**prazo_fin) / ((1 + juros_mensal)**prazo_fin - 1)
         else:
             amort = saldo / prazo_fin
@@ -127,17 +136,11 @@ with tabs[1]:
 with tabs[2]:
     st.header("📊 Comparativo Inteligente")
 
-    st.write("### Comparação de Taxas Efetivas")
     st.write("Taxa efetiva Consórcio:", f"{taxa_cons:.2f}% a.a")
     st.write("Taxa efetiva Financiamento:", f"{taxa_fin:.2f}% a.a")
 
     resultado = score_taxas(taxa_cons, taxa_fin)
     st.success(resultado)
-
-    if taxa_cons < taxa_fin:
-        st.write("✅ Até esta taxa, **Consórcio tende a ser melhor investimento**.")
-    else:
-        st.write("✅ A partir desta taxa, **Financiamento tende a ser melhor opção**.")
 
 # ======================
 # DIDÁTICA
@@ -147,20 +150,18 @@ with tabs[3]:
 
     st.markdown("""
 ### 🏦 Consórcio
-- Não há juros, apenas taxas administrativas.
-- O custo real é diluído no prazo.
-- O redutor diminui apenas a parcela antes da contemplação.
-- Lance pode ser sobre crédito ou categoria, conforme administradora.
+- Não possui juros, apenas taxas administrativas.
+- Redutor afeta somente parcelas antes da contemplação.
+- Lance varia conforme administradora e grupo.
 
 ### 💰 Financiamento
-- Possui juros compostos.
-- PRICE mantém parcela fixa.
-- SAC reduz parcela ao longo do tempo.
+- Juros compostos.
+- PRICE = parcela fixa
+- SAC = parcelas decrescentes
 
 ### 📊 Comparativo
-- Transformamos taxas em valores anuais equivalentes.
-- Comparamos custo do dinheiro no tempo.
-- Criamos um score simples e objetivo para decisão.
+- Converte taxas em base anual.
+- Compara custo do dinheiro no tempo.
 """)
 
 # ======================
@@ -172,25 +173,22 @@ with tabs[4]:
     texto = f"""
 PROPOSTA PERSONALIZADA
 
-🔹 CONSÓRCIO
+CONSÓRCIO
 Crédito: {formatar(credito)}
 Parcela pré: {formatar(parcela_pre)}
 Parcela pós: {formatar(parcela_pos)}
 
-🔹 FINANCIAMENTO
+FINANCIAMENTO
 Parcela inicial: {formatar(parcela)}
 
-🔹 CONCLUSÃO
+CONCLUSÃO
 {resultado}
 """
 
-    st.text_area("Prévia da proposta", texto, height=300)
+    st.text_area("Prévia", texto, height=300)
+    st.download_button("⬇️ Baixar TXT", texto, "proposta_cliente.txt")
 
-    st.download_button(
-        "⬇️ Baixar proposta em TXT",
-        texto,
-        file_name="proposta_cliente.txt"
-    )
+
 
 
 
