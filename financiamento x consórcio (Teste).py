@@ -2,222 +2,197 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 
-# =========================
-# CONFIGURAÇÃO
-# =========================
-st.set_page_config(
-    page_title="Intelligence Banking Pro",
-    page_icon="💎",
-    layout="wide"
-)
+st.set_page_config(page_title="Consórcio x Financiamento", layout="wide")
 
-# =========================
+# ======================
 # FUNÇÕES AUXILIARES
-# =========================
+# ======================
 
-def probabilidade_contemplacao(lance_total, credito):
-    pct = (lance_total / credito) * 100 if credito > 0 else 0
-    if pct < 10: return 15
-    elif pct < 20: return 30
-    elif pct < 30: return 55
-    elif pct < 40: return 75
-    else: return 90
+def formatar(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+def taxa_efetiva_consorcio(taxa_adm, fundo_reserva, prazo):
+    custo_total = taxa_adm + fundo_reserva
+    return (custo_total / prazo) * 12
 
-def score_estrategia(custo_total, prazo, parcela):
-    score = 100
-    score -= custo_total / 150000
-    score -= parcela / 3000
-    score -= prazo / 15
-    return max(0, round(score, 1))
+def taxa_efetiva_financiamento(juros_anual):
+    return juros_anual
 
-
-def score_taxa(taxa_cons, taxa_fin):
-    diff = (taxa_fin - taxa_cons) * 100
-    if diff > 0:
-        return round(min(100, diff), 1), "CONSÓRCIO"
+def score_taxas(t_cons, t_fin):
+    if t_cons < t_fin * 0.8:
+        return "🟢 Consórcio muito vantajoso"
+    elif t_cons < t_fin:
+        return "🟡 Consórcio levemente melhor"
+    elif t_cons == t_fin:
+        return "⚖️ Empate técnico"
     else:
-        return round(min(100, abs(diff)), 1), "FINANCIAMENTO"
+        return "🔴 Financiamento mais vantajoso"
 
+# ======================
+# TABS
+# ======================
 
-# =========================
+tabs = st.tabs([
+    "🏦 Consórcio",
+    "💰 Financiamento",
+    "📊 Comparativo",
+    "📘 Didática",
+    "📄 Proposta Cliente"
+])
+
+# ======================
 # CONSÓRCIO
-# =========================
-def calcular_consorcio(
-    credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
-    lance_embutido_pct, lance_livre_pct, lance_fixo_pct,
-    redutor_pct, administradora, grupo
-):
-    taxa_total = (taxa_adm + fundo_reserva) / 100
-    categoria = credito * (1 + taxa_total)
+# ======================
+with tabs[0]:
+    st.header("🏦 Simulação de Consórcio")
+
+    administradora = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
+
+    grupo = None
+    if administradora == "CNP":
+        grupo = st.selectbox("Grupo", ["1021", "1053", "Demais Grupos"])
+
+    credito = st.number_input("Crédito desejado", min_value=0.0, step=1000.0)
+    prazo = st.number_input("Prazo (meses)", min_value=1)
+    meses_contemplacao = st.number_input("Meses para contemplação", min_value=0)
+    taxa_adm = st.number_input("Taxa de administração (%)", min_value=0.0)
+    fundo_reserva = st.number_input("Fundo reserva (%)", min_value=0.0)
+    redutor = st.number_input("Redutor na parcela pré (%)", min_value=0.0)
+
+    categoria = credito * (1 + (taxa_adm + fundo_reserva) / 100)
+
+    base_lance = "crédito"
+    if administradora == "CNP" and grupo in ["1021", "1053"]:
+        base_lance = "categoria"
+    elif administradora == "Porto":
+        base_lance = "categoria"
+
+    base_valor = categoria if base_lance == "categoria" else credito
+
+    lance_fixo = base_valor * 0.3
+    lance_livre = base_valor * 0.2
 
     parcela_base = categoria / prazo
-    parcela_pre = parcela_base * (1 - redutor_pct / 100)
+    parcela_pre = parcela_base * (1 - redutor / 100)
     parcela_pos = parcela_base
 
-    saldo_atual = max(categoria - meses_contemplacao * parcela_pre, 0)
+    credito_liquido = credito
 
-    if administradora == "CNP":
-        if grupo in ["1021", "1053"]:
-            base_fixo, base_livre = categoria, credito
+    prob = min(90, 20 + (lance_fixo / base_valor) * 100)
+
+    st.subheader("📌 Resultados")
+    st.write("Crédito original:", formatar(credito))
+    st.write("Crédito líquido (sem embutido):", formatar(credito_liquido))
+    st.write("Parcela pré-contemplação:", formatar(parcela_pre))
+    st.write("Parcela pós-contemplação:", formatar(parcela_pos))
+    st.write("Lance fixo:", formatar(lance_fixo))
+    st.write("Lance livre:", formatar(lance_livre))
+    st.write(f"🎯 Probabilidade estimada de contemplação: **{prob:.0f}%**")
+
+    taxa_cons = taxa_efetiva_consorcio(taxa_adm, fundo_reserva, prazo)
+
+# ======================
+# FINANCIAMENTO
+# ======================
+with tabs[1]:
+    st.header("💰 Simulação de Financiamento")
+
+    valor_bem = st.number_input("Valor do bem", min_value=0.0)
+    entrada = st.number_input("Entrada", min_value=0.0)
+    prazo_fin = st.number_input("Prazo (meses)", min_value=1)
+    juros_anual = st.number_input("Juros anual (%)", min_value=0.0)
+    sistema = st.selectbox("Sistema", ["PRICE", "SAC"])
+
+    saldo = valor_bem - entrada
+    juros_mensal = (juros_anual / 100) / 12
+
+    if saldo > 0 and prazo_fin > 0:
+        if sistema == "PRICE":
+            parcela = saldo * (juros_mensal * (1 + juros_mensal)**prazo_fin) / ((1 + juros_mensal)**prazo_fin - 1)
         else:
-            base_fixo = base_livre = credito
-    elif administradora == "Porto":
-        base_fixo = base_livre = categoria
+            amort = saldo / prazo_fin
+            parcela = amort + saldo * juros_mensal
     else:
-        base_fixo = base_livre = credito
+        parcela = 0
 
-    lance_embutido = credito * (lance_embutido_pct / 100)
-    lance_fixo = base_fixo * (lance_fixo_pct / 100)
-    lance_livre = base_livre * (lance_livre_pct / 100)
+    st.subheader("📌 Resultados")
+    st.write("Saldo financiado:", formatar(saldo))
+    st.write("Parcela inicial:", formatar(parcela))
 
-    lance_total = lance_embutido + lance_fixo + lance_livre
-    credito_liquido = credito - lance_embutido
+    taxa_fin = taxa_efetiva_financiamento(juros_anual)
 
-    return {
-        "Credito": credito,
-        "Credito Liquido": credito_liquido,
-        "Categoria": categoria,
-        "Parcela Pré": parcela_pre,
-        "Parcela Pós": parcela_pos,
-        "Saldo": saldo_atual,
-        "Lance Total": lance_total,
-        "Probabilidade": probabilidade_contemplacao(lance_total, credito),
-        "Taxa Efetiva": taxa_total,
-        "Custo Total": categoria
-    }
+# ======================
+# COMPARATIVO
+# ======================
+with tabs[2]:
+    st.header("📊 Comparativo Inteligente")
 
+    st.write("### Comparação de Taxas Efetivas")
+    st.write("Taxa efetiva Consórcio:", f"{taxa_cons:.2f}% a.a")
+    st.write("Taxa efetiva Financiamento:", f"{taxa_fin:.2f}% a.a")
 
-# =========================
-# FINANCIAMENTO
-# =========================
-def tabela_price(valor, juros_anual, meses):
-    i = juros_anual / 100 / 12
-    pmt = valor * (i * (1 + i) ** meses) / ((1 + i) ** meses - 1)
-    total = pmt * meses
-    return pmt, pmt, total, total - valor
+    resultado = score_taxas(taxa_cons, taxa_fin)
+    st.success(resultado)
 
+    if taxa_cons < taxa_fin:
+        st.write("✅ Até esta taxa, **Consórcio tende a ser melhor investimento**.")
+    else:
+        st.write("✅ A partir desta taxa, **Financiamento tende a ser melhor opção**.")
 
-def tabela_sac(valor, juros_anual, meses):
-    i = juros_anual / 100 / 12
-    amort = valor / meses
-    saldo = valor
-    parcelas = []
-    for _ in range(meses):
-        parcelas.append(amort + saldo * i)
-        saldo -= amort
-    return parcelas[0], parcelas[-1], sum(parcelas), sum(parcelas) - valor
-
-
-# =========================
-# INTERFACE
-# =========================
-st.title("💎 Intelligence Banking – Simulador Profissional")
-
-tab_cons, tab_fin, tab_comp, tab_did, tab_apres = st.tabs(
-    ["🤝 Consórcio", "🏦 Financiamento", "📊 Comparativo", "📘 Didática", "🧾 Apresentação"]
-)
-
-# =========================
-# CONSÓRCIO
-# =========================
-with tab_cons:
-    c1, c2 = st.columns(2)
-
-    with c1:
-        credito = st.number_input("Crédito (R$)", 300000.0)
-        prazo = st.number_input("Prazo (meses)", 1, value=180)
-        taxa_adm = st.number_input("Taxa Administração (%)", 15.0)
-        fundo = st.number_input("Fundo Reserva (%)", 2.0)
-        meses = st.number_input("Meses até contemplação", 0, value=12)
-        redutor = st.number_input("Redutor pré (%)", 0.0)
-        adm = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
-        grupo = st.selectbox("Grupo", ["1021", "1053", "Demais Grupos"]) if adm == "CNP" else "Demais Grupos"
-        le = st.number_input("Lance embutido (%)", 20.0)
-        lf = st.number_input("Lance fixo (%)", 0.0)
-        ll = st.number_input("Lance livre (%)", 5.0)
-
-    res_c = calcular_consorcio(credito, prazo, taxa_adm, fundo, meses, le, ll, lf, redutor, adm, grupo)
-
-    with c2:
-        for k, v in res_c.items():
-            if isinstance(v, float):
-                st.metric(k, f"R$ {v:,.2f}" if "Taxa" not in k else f"{v*100:.2f}%")
-            else:
-                st.metric(k, v)
-
-# =========================
-# FINANCIAMENTO
-# =========================
-with tab_fin:
-    f1, f2 = st.columns(2)
-
-    with f1:
-        valor = st.number_input("Valor do bem", 500000.0)
-        entrada = st.number_input("Entrada", 100000.0)
-        prazo_f = st.number_input("Prazo (meses)", 1, value=240)
-        juros = st.number_input("Juros anual (%)", 12.0)
-        sistema = st.selectbox("Sistema", ["Price", "SAC"])
-
-    financiado = max(valor - entrada, 0)
-
-    p_ini, p_fim, total_fin, juros_tot = (
-        tabela_price(financiado, juros, prazo_f)
-        if sistema == "Price"
-        else tabela_sac(financiado, juros, prazo_f)
-    )
-
-    taxa_efetiva_fin = (total_fin / financiado - 1) if financiado > 0 else 0
-
-    with f2:
-        st.metric("Valor financiado", f"R$ {financiado:,.2f}")
-        st.metric("Parcela inicial", f"R$ {p_ini:,.2f}")
-        st.metric("Total pago", f"R$ {total_fin:,.2f}")
-        st.metric("Taxa efetiva", f"{taxa_efetiva_fin*100:.2f}%")
-
-# =========================
-# COMPARATIVO DE TAXAS
-# =========================
-with tab_comp:
-    score_t, vencedor = score_taxa(res_c["Taxa Efetiva"], taxa_efetiva_fin)
-
-    st.subheader("📊 Comparativo por Taxa Efetiva")
-
-    st.metric("Taxa efetiva Consórcio", f"{res_c['Taxa Efetiva']*100:.2f}%")
-    st.metric("Taxa efetiva Financiamento", f"{taxa_efetiva_fin*100:.2f}%")
-    st.metric("Score por Taxa", score_t)
-
-    st.success(
-        f"🎯 Até esta taxa vale mais a pena: **{vencedor}**"
-    )
-
-# =========================
+# ======================
 # DIDÁTICA
-# =========================
-with tab_did:
-    st.markdown("""
-### 📘 Comparação por Taxa Efetiva
+# ======================
+with tabs[3]:
+    st.header("📘 Explicação Didática")
 
-- **Taxa efetiva do consórcio** = custo total ÷ crédito − 1  
-- **Taxa efetiva do financiamento** = total pago ÷ valor financiado − 1  
-- O score mostra **qual modalidade é mais barata financeiramente**
-- Ignora perfil, prazo e fluxo → análise **pura de custo**
+    st.markdown("""
+### 🏦 Consórcio
+- Não há juros, apenas taxas administrativas.
+- O custo real é diluído no prazo.
+- O redutor diminui apenas a parcela antes da contemplação.
+- Lance pode ser sobre crédito ou categoria, conforme administradora.
+
+### 💰 Financiamento
+- Possui juros compostos.
+- PRICE mantém parcela fixa.
+- SAC reduz parcela ao longo do tempo.
+
+### 📊 Comparativo
+- Transformamos taxas em valores anuais equivalentes.
+- Comparamos custo do dinheiro no tempo.
+- Criamos um score simples e objetivo para decisão.
 """)
 
-# =========================
-# APRESENTAÇÃO
-# =========================
-with tab_apres:
+# ======================
+# PROPOSTA CLIENTE
+# ======================
+with tabs[4]:
+    st.header("📄 Proposta para o Cliente")
+
     texto = f"""
-ANÁLISE POR TAXA EFETIVA
+PROPOSTA PERSONALIZADA
 
-Consórcio: {res_c['Taxa Efetiva']*100:.2f}%
-Financiamento: {taxa_efetiva_fin*100:.2f}%
+🔹 CONSÓRCIO
+Crédito: {formatar(credito)}
+Parcela pré: {formatar(parcela_pre)}
+Parcela pós: {formatar(parcela_pos)}
 
-Conclusão:
-{vencedor} é mais vantajoso considerando apenas taxas.
+🔹 FINANCIAMENTO
+Parcela inicial: {formatar(parcela)}
+
+🔹 CONCLUSÃO
+{resultado}
 """
-    st.download_button("⬇️ Baixar TXT", texto, "proposta_taxas.txt")
+
+    st.text_area("Prévia da proposta", texto, height=300)
+
+    st.download_button(
+        "⬇️ Baixar proposta em TXT",
+        texto,
+        file_name="proposta_cliente.txt"
+    )
+
+
 
 
 
