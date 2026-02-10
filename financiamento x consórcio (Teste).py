@@ -61,7 +61,7 @@ def calcular_consorcio(
         "Parcela Pós": parcela_pos,
         "Saldo": saldo_atual,
         "Lance Total": lance_total,
-        "Taxa Efetiva": taxa_total,
+        "Taxa Efetiva": taxa_total,  # percentual
         "Custo Total": categoria
     }
 
@@ -120,7 +120,10 @@ with tab_cons:
 
     with c2:
         for k, v in res_c.items():
-            st.metric(k, f"R$ {v:,.2f}" if isinstance(v, float) else v)
+            if k == "Taxa Efetiva":
+                st.metric(k, f"{v*100:.2f}%")
+            else:
+                st.metric(k, f"R$ {v:,.2f}")
 
 # =========================
 # FINANCIAMENTO
@@ -156,32 +159,26 @@ with tab_fin:
 # COMPARATIVO
 # =========================
 with tab_comp:
-    st.subheader("📊 Comparativo Completo")
-
     vencedor_taxa = "CONSÓRCIO" if res_c["Taxa Efetiva"] < taxa_efetiva_fin else "FINANCIAMENTO"
     vencedor_parcela = "CONSÓRCIO" if res_c["Parcela Pós"] < p_ini else "FINANCIAMENTO"
     vencedor_custo = "CONSÓRCIO" if res_c["Custo Total"] < total_fin else "FINANCIAMENTO"
 
-    st.markdown("### 🔹 Taxa Efetiva")
-    st.write(vencedor_taxa)
-
-    st.markdown("### 🔹 Parcela")
-    st.write(vencedor_parcela)
-
-    st.markdown("### 🔹 Custo Total")
-    st.write(vencedor_custo)
+    st.subheader("📊 Resultado Comparativo")
+    st.write(f"🔹 Melhor por taxa: **{vencedor_taxa}**")
+    st.write(f"🔹 Melhor por parcela: **{vencedor_parcela}**")
+    st.write(f"🔹 Melhor por custo total: **{vencedor_custo}**")
 
 # =========================
 # DIDÁTICA
 # =========================
 with tab_did:
     st.markdown("""
-### 📘 Como interpretar esta análise
+### 📘 Leitura correta da Taxa Efetiva
 
-- **Taxa efetiva** mostra o custo percentual real
-- **Parcela** afeta fluxo de caixa
-- **Custo total** mostra quanto sai do bolso no fim
-- A melhor opção depende da **estratégia do cliente**
+- No **consórcio**, a taxa efetiva representa o **custo total percentual**
+- No **financiamento**, reflete juros compostos no tempo
+- Taxa ≠ parcela
+- Estratégia depende de **fluxo x custo**
 """)
 
 # =========================
@@ -215,6 +212,8 @@ Melhor por custo total: {vencedor_custo}
 """
 
     st.download_button("⬇️ Baixar Proposta TXT", texto, "proposta_completa.txt")
+
+
 
 
 
