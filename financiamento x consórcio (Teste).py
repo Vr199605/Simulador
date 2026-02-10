@@ -14,8 +14,7 @@ st.set_page_config(
 # =========================
 def calcular_consorcio(
     credito, prazo, taxa_adm, fundo_reserva, meses_contemplacao,
-    lance_embutido_pct, lance_fixo_pct,
-    representatividade_pct, recurso_proprio,
+    lance_embutido_pct, lance_fixo_pct, recurso_proprio,
     redutor_pct, administradora, grupo
 ):
     taxa_total = (taxa_adm + fundo_reserva) / 100
@@ -27,26 +26,23 @@ def calcular_consorcio(
 
     saldo_atual = max(categoria - meses_contemplacao * parcela_pre, 0)
 
-    # Bases conforme administradora
-    if administradora == "CNP":
-        if grupo in ["1021", "1053"]:
-            base_fixo = categoria
-            base_livre = credito
-        else:
-            base_fixo = base_livre = credito
-    elif administradora == "Porto":
-        base_fixo = base_livre = categoria
-    else:  # Itaú
-        base_fixo = base_livre = credito
+    # Base conforme administradora
+    if administradora == "Porto":
+        base_representatividade = categoria
+    else:
+        base_representatividade = credito
 
+    # Lances
     lance_embutido = credito * (lance_embutido_pct / 100)
-    lance_fixo = base_fixo * (lance_fixo_pct / 100)
+    lance_fixo = base_representatividade * (lance_fixo_pct / 100)
 
-    # Representatividade do lance
-    lance_livre = base_livre * (representatividade_pct / 100)
+    # Lance livre automático (estratégico)
+    lance_livre = recurso_proprio
 
-    lance_total = lance_embutido + lance_fixo + lance_livre + recurso_proprio
+    lance_total = lance_embutido + lance_fixo + lance_livre
     credito_liquido = credito - lance_embutido
+
+    representatividade = (lance_total / base_representatividade) * 100 if base_representatividade > 0 else 0
 
     return {
         "Crédito": credito,
@@ -58,8 +54,8 @@ def calcular_consorcio(
         "Lance Embutido": lance_embutido,
         "Lance Fixo": lance_fixo,
         "Lance Livre": lance_livre,
-        "Recurso Próprio": recurso_proprio,
         "Lance Total": lance_total,
+        "Representatividade do Lance (%)": representatividade,
         "Taxa Efetiva": taxa_total,
         "Custo Total": categoria
     }
@@ -105,6 +101,7 @@ with tab_cons:
         fundo = st.number_input("Fundo Reserva (%)", value=2.0)
         meses = st.number_input("Meses até contemplação", min_value=0, value=12)
         redutor = st.number_input("Redutor pré (%)", value=0.0)
+
         recurso = st.number_input("Recurso próprio (R$)", value=0.0)
 
         adm = st.selectbox("Administradora", ["CNP", "Itaú", "Porto"])
@@ -116,21 +113,17 @@ with tab_cons:
         le = st.number_input("Lance embutido (%)", value=20.0)
         lf = st.number_input("Lance fixo (%)", value=0.0)
 
-        rep = st.number_input(
-            "Representatividade do lance no grupo (%)",
-            help="Percentual estimado para competir no ranking do grupo",
-            value=5.0
-        )
-
     res_c = calcular_consorcio(
         credito, prazo, taxa_adm, fundo, meses,
-        le, lf, rep, recurso, redutor, adm, grupo
+        le, lf, recurso, redutor, adm, grupo
     )
 
     with c2:
         for k, v in res_c.items():
             if k == "Taxa Efetiva":
                 st.metric(k, f"{v*100:.2f}%")
+            elif "Representatividade" in k:
+                st.metric(k, f"{v:.2f}%")
             else:
                 st.metric(k, f"R$ {v:,.2f}")
 
@@ -183,10 +176,10 @@ with tab_did:
     st.markdown("""
 ### 📘 Representatividade do Lance
 
-- Substitui o antigo **lance livre**
-- Reflete a **posição competitiva no grupo**
-- Cada administradora usa **base diferente**
-- O sistema converte automaticamente em valor financeiro
+- Não é input → é **resultado**
+- Mostra o peso real do lance no grupo
+- Cada administradora usa base diferente
+- Ajuda a entender **chance competitiva**
 """)
 
 # =========================
@@ -202,6 +195,7 @@ INTELLIGENCE BANKING
 CONSÓRCIO
 Crédito: R$ {res_c['Crédito']:,.2f}
 Lance Total: R$ {res_c['Lance Total']:,.2f}
+Representatividade do Lance: {res_c['Representatividade do Lance (%)']:.2f}%
 Parcela Pós: R$ {res_c['Parcela Pós']:,.2f}
 Taxa Efetiva: {res_c['Taxa Efetiva']*100:.2f}%
 Custo Total: R$ {res_c['Custo Total']:,.2f}
@@ -220,6 +214,8 @@ Melhor por custo total: {vencedor_custo}
 """
 
     st.download_button("⬇️ Baixar Proposta TXT", texto, "proposta_completa.txt")
+
+
 
 
 
